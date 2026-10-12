@@ -155,7 +155,7 @@
     },
     {
       "labelKey": "common.documentation",
-      "path": "https://komari-document.pages.dev/",
+      "path": "https://github.com/jiajiaxd/komari/blob/main/docs/install/quick-start.md",
       "icon": "Book",
       "newTab": true,
       "bottom": true
