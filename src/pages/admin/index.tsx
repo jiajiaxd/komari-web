@@ -23,6 +23,7 @@ import {
 } from "@radix-ui/themes";
 import {
   CircleDollarSign,
+  CloudDownload,
   Copy,
   CornerRightUp,
   Download,
@@ -85,6 +86,7 @@ import {
 import { useSettings } from "@/lib/api";
 import { SelectOrInput } from "@/components/ui/select-or-input";
 import { useRPC2Call } from "@/contexts/RPC2Context";
+import { UpdateAgentDialog } from "@/components/admin/UpdateAgentDialog";
 
 
 const NodeDetailsPage = () => {
@@ -178,6 +180,7 @@ const EmptyNodesGuide = () => {
 type AutoDiscoveryInstallOptions = {
   disableWebSsh: boolean;
   disableAutoUpdate: boolean;
+  disableLoginMonitor: boolean;
   ignoreUnsafeCert: boolean;
   memoryIncludeCache: boolean;
   getIpAddrFromNic: boolean;
@@ -237,6 +240,7 @@ const AutoDiscoverySection = ({
     React.useState<AutoDiscoveryInstallOptions>({
       disableWebSsh: false,
       disableAutoUpdate: false,
+      disableLoginMonitor: false,
       ignoreUnsafeCert: false,
       memoryIncludeCache: false,
       getIpAddrFromNic: false,
@@ -293,6 +297,9 @@ const AutoDiscoverySection = ({
     }
     if (installOptions.disableAutoUpdate) {
       args.push("--disable-auto-update");
+    }
+    if (installOptions.disableLoginMonitor) {
+      args.push("--disable-login-monitor");
     }
     if (installOptions.ignoreUnsafeCert) {
       args.push("--ignore-unsafe-cert");
@@ -566,6 +573,28 @@ const AutoDiscoverySection = ({
                 }
               >
                 {t("admin.nodeTable.disableAutoUpdate", "禁用自动更新")}
+              </label>
+            </Flex>
+            <Flex gap="2" align="center">
+              <Checkbox
+                checked={installOptions.disableLoginMonitor}
+                onCheckedChange={(checked) =>
+                  setInstallOptions((prev) => ({
+                    ...prev,
+                    disableLoginMonitor: Boolean(checked),
+                  }))
+                }
+              />
+              <label
+                className="text-sm font-normal cursor-pointer"
+                onClick={() =>
+                  setInstallOptions((prev) => ({
+                    ...prev,
+                    disableLoginMonitor: !prev.disableLoginMonitor,
+                  }))
+                }
+              >
+                {t("admin.nodeTable.disableLoginMonitor", "禁用登录监控")}
               </label>
             </Flex>
             <Flex gap="2" align="center">
@@ -1101,6 +1130,14 @@ const Header = ({
         )}
       </Flex>
       <Flex gap="2">
+        {selectedNodes.length > 0 && (
+          <UpdateAgentDialog uuids={selectedNodes}>
+            <Button variant="soft">
+              <CloudDownload size={16} />
+              {t("admin.agentUpdate.batch")}
+            </Button>
+          </UpdateAgentDialog>
+        )}
         <TextField.Root
           placeholder={t("admin.nodeTable.searchByName")}
           value={searchTerm}
@@ -1454,6 +1491,11 @@ const ActionButtons = ({
       >
         <Terminal size="18" />
       </IconButton>
+      <UpdateAgentDialog uuids={[node.uuid]}>
+        <IconButton title={t("admin.agentUpdate.title")} variant="ghost">
+          <CloudDownload size="18" />
+        </IconButton>
+      </UpdateAgentDialog>
       <EditButton node={node} />
       <BillingButton node={node} />
       <DeleteButton node={node} />
@@ -1511,6 +1553,7 @@ function DeleteButton({ node }: { node: NodeDetail }) {
 type InstallOptions = {
   disableWebSsh: boolean;
   disableAutoUpdate: boolean;
+  disableLoginMonitor: boolean;
   ignoreUnsafeCert: boolean;
   memoryIncludeCache: boolean;
   getIpAddrFromNic: boolean;
@@ -1539,6 +1582,7 @@ function GenerateCommandButton({
   const [installOptions, setInstallOptions] = React.useState<InstallOptions>({
     disableWebSsh: false,
     disableAutoUpdate: false,
+    disableLoginMonitor: false,
     ignoreUnsafeCert: false,
     memoryIncludeCache: false,
     getIpAddrFromNic: false,
@@ -1596,6 +1640,9 @@ function GenerateCommandButton({
     }
     if (installOptions.disableAutoUpdate) {
       args.push("--disable-auto-update");
+    }
+    if (installOptions.disableLoginMonitor) {
+      args.push("--disable-login-monitor");
     }
     if (installOptions.ignoreUnsafeCert) {
       args.push("--ignore-unsafe-cert");
@@ -1806,6 +1853,28 @@ function GenerateCommandButton({
                   }}
                 >
                   {t("admin.nodeTable.disableAutoUpdate", "禁用自动更新")}
+                </label>
+              </Flex>
+              <Flex gap="2" align="center">
+                <Checkbox
+                  checked={installOptions.disableLoginMonitor}
+                  onCheckedChange={(checked) => {
+                    setInstallOptions((prev) => ({
+                      ...prev,
+                      disableLoginMonitor: Boolean(checked),
+                    }));
+                  }}
+                ></Checkbox>
+                <label
+                  className="text-sm font-normal"
+                  onClick={() => {
+                    setInstallOptions((prev) => ({
+                      ...prev,
+                      disableLoginMonitor: !prev.disableLoginMonitor,
+                    }));
+                  }}
+                >
+                  {t("admin.nodeTable.disableLoginMonitor", "禁用登录监控")}
                 </label>
               </Flex>
               <Flex gap="2" align="center">

@@ -35,6 +35,11 @@
           "labelKey": "sessions.title",
           "path": "/admin/sessions",
           "icon": "Users"
+        },
+        {
+          "labelKey": "loginHistory.title",
+          "path": "/admin/login-history",
+          "icon": "ShieldAlert"
         }
       ]
     },

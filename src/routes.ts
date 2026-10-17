@@ -246,6 +246,12 @@ export const routes: RouteObject[] = [
         element: React.createElement(lazy(() => import("./pages/admin/log"))),
       },
       {
+        path: "login-history",
+        element: React.createElement(
+          lazy(() => import("./pages/admin/login_history"))
+        ),
+      },
+      {
         path: "pprof",
         element: React.createElement(lazy(() => import("./pages/admin/pprof"))),
       },
