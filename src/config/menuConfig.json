@@ -40,6 +40,11 @@
           "labelKey": "loginHistory.title",
           "path": "/admin/login-history",
           "icon": "ShieldAlert"
+        },
+        {
+          "labelKey": "sshManage.title",
+          "path": "/admin/ssh",
+          "icon": "KeyRound"
         }
       ]
     },

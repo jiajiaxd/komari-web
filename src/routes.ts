@@ -252,6 +252,12 @@ export const routes: RouteObject[] = [
         ),
       },
       {
+        path: "ssh",
+        element: React.createElement(
+          lazy(() => import("./pages/admin/ssh_manage"))
+        ),
+      },
+      {
         path: "pprof",
         element: React.createElement(lazy(() => import("./pages/admin/pprof"))),
       },
