@@ -1647,8 +1647,8 @@
       "failed": "失败",
       "offline": "离线",
       "ok": "成功",
-      "timeout": "无响应",
       "outdated": "agent 需更新",
+      "timeout": "无响应",
       "unsupported": "不支持"
     },
     "targets": "目标节点",
