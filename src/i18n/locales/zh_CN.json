@@ -1577,6 +1577,7 @@
     "byKey": "按公钥",
     "byServer": "按服务器",
     "changePort": "SSH 端口",
+    "checkedAt": "最近检查",
     "checks": {
       "authorized_keys": "authorized_keys 已落盘",
       "effective_config": "sshd 生效配置",
@@ -1589,12 +1590,15 @@
     "dialog": {
       "add": {
         "description": "把公钥追加到 root 的 ~/.ssh/authorized_keys，已存在的公钥会跳过。",
+        "first": "请先输入要下发的公钥，再选择服务器。",
         "hint": "共 {{count}} 个公钥",
         "invalid": "不是有效的 OpenSSH 公钥：{{line}}",
         "keys": "公钥（每行一个）",
-        "title": "下发公钥",
-        "first": "请先输入要下发的公钥，再选择服务器。"
+        "title": "下发公钥"
       },
+      "hiddenUnchanged": "已隐藏 {{count}} 个无需修改的节点",
+      "hiddenWithoutKey": "已隐藏 {{count}} 个没有所选公钥的节点",
+      "nothingToChange": "所有可管理的节点都已是目标状态。",
       "port": {
         "description": "设置 sshd 监听的端口。其他 Port 配置（包括 sshd_config.d 中的）会被注释掉。",
         "title": "修改 SSH 端口",
@@ -1602,11 +1606,11 @@
       },
       "remove": {
         "description": "从目标节点 root 的 ~/.ssh/authorized_keys 中删除所选公钥。",
+        "first": "请先选择要删除的公钥，再选择服务器。",
         "keys": "要删除的公钥",
         "none": "没有已知的公钥，请先读取节点。",
         "title": "删除公钥",
-        "warning": "请确认删除后仍能登录，例如还有其他公钥或已允许密码登录。",
-        "first": "请先选择要删除的公钥，再选择服务器。"
+        "warning": "请确认删除后仍能登录，例如还有其他公钥或已允许密码登录。"
       },
       "restartNote": "agent 会执行修改、重启 SSH 服务，并检查改动已写入磁盘且已生效。已建立的 SSH 会话不会断开。需要将 agent 更新到支持 SSH 管理的版本。",
       "root": {
@@ -1614,10 +1618,7 @@
         "description": "允许或禁止 root 通过密码登录 SSH。",
         "forbidHint": "设置 PermitRootLogin prohibit-password，root 仍可使用公钥登录。已限制 root 登录的节点保持不变。",
         "title": "root 密码登录"
-      },
-      "nothingToChange": "所有可管理的节点都已是目标状态。",
-      "hiddenUnchanged": "已隐藏 {{count}} 个无需修改的节点",
-      "hiddenWithoutKey": "已隐藏 {{count}} 个没有所选公钥的节点"
+      }
     },
     "fingerprint": "指纹",
     "forbid": "禁止",
@@ -1627,13 +1628,18 @@
     "key": "公钥",
     "keyCount": "{{count}} 个公钥",
     "keys": "公钥",
+    "manageable": "可管理",
     "neverRead": "尚未读取",
     "noComment": "无备注",
     "node": "节点",
     "noKeys": "没有已授权的公钥",
     "noKeysAnywhere": "没有找到公钥，请先读取节点。",
+    "noKeysShort": "无公钥",
+    "noManageable": "暂无可管理的节点，请先读取节点状态。",
     "noNodes": "暂无节点",
+    "noState": "未获取到状态",
     "port": "端口",
+    "reason": "原因",
     "refreshAll": "读取全部",
     "refreshResult": "已读取 {{ok}} 个节点，{{failed}} 个失败",
     "refreshSelected": "读取所选",
@@ -1646,6 +1652,12 @@
       "unchanged": "无需修改"
     },
     "rootPasswordLogin": "root 密码登录",
+    "rootReason": {
+      "forcedCommands": "仅强制命令",
+      "keyOnly": "仅公钥",
+      "passwordOff": "密码认证已关闭",
+      "rootDisabled": "禁止 root"
+    },
     "selectedCount": "已选 {{count}} 个",
     "serverCount": "{{count}} / {{total}} 个节点",
     "status": {
@@ -1658,21 +1670,9 @@
     },
     "targets": "目标节点",
     "title": "SSH 管理",
-    "updatedAt": "读取时间",
-    "manageable": "可管理",
     "unmanageable": "不可管理",
     "unmanageableHint": "agent 版本过旧、不支持 SSH 管理或尚未读取到状态。更新 agent 后点击读取即可管理。",
-    "noManageable": "暂无可管理的节点，请先读取节点状态。",
-    "reason": "原因",
-    "checkedAt": "最近检查",
-    "noState": "未获取到状态",
-    "noKeysShort": "无公钥",
-    "rootReason": {
-      "keyOnly": "仅公钥",
-      "rootDisabled": "禁止 root",
-      "forcedCommands": "仅强制命令",
-      "passwordOff": "密码认证已关闭"
-    }
+    "updatedAt": "读取时间"
   },
   "status_settings": "状态显示设置",
   "system": {
