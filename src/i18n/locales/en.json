@@ -811,6 +811,7 @@
       "ok": "Done",
       "failed": "Failed",
       "offline": "Offline",
+      "outdated": "Agent outdated",
       "unsupported": "Unsupported",
       "timeout": "No answer"
     },
