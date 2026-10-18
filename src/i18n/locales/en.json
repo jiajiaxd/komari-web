@@ -822,14 +822,16 @@
         "description": "Append the keys to root's ~/.ssh/authorized_keys. Keys that are already installed are skipped.",
         "keys": "Public keys (one per line)",
         "hint": "{{count}} key(s)",
-        "invalid": "Not an OpenSSH public key: {{line}}"
+        "invalid": "Not an OpenSSH public key: {{line}}",
+        "first": "Enter the keys to deploy first, then choose the servers."
       },
       "remove": {
         "title": "Remove public keys",
         "description": "Remove the selected keys from root's ~/.ssh/authorized_keys on the target nodes.",
         "keys": "Keys to remove",
-        "none": "The target nodes have no known keys. Read them first.",
-        "warning": "Make sure you can still log in afterwards, for example with another key or with password login."
+        "none": "No known keys. Read the nodes first.",
+        "warning": "Make sure you can still log in afterwards, for example with another key or with password login.",
+        "first": "Choose the keys to remove first, then choose the servers."
       },
       "port": {
         "title": "Change SSH port",
@@ -841,7 +843,10 @@
         "description": "Allow or forbid root to log in over SSH with a password.",
         "allowHint": "Sets PermitRootLogin yes and PasswordAuthentication yes.",
         "forbidHint": "Sets PermitRootLogin prohibit-password, so root can still log in with keys. Nodes where root login is already restricted are left unchanged."
-      }
+      },
+      "nothingToChange": "Every manageable node is already in the requested state.",
+      "hiddenUnchanged": "{{count}} nodes that need no change are hidden",
+      "hiddenWithoutKey": "{{count}} nodes without the chosen keys are hidden"
     },
     "results": {
       "title": "Results",
@@ -856,6 +861,20 @@
       "sshd_config": "sshd_config on disk",
       "effective_config": "Effective sshd settings",
       "port_listening": "SSH answering on port"
+    },
+    "manageable": "Manageable",
+    "unmanageable": "Not manageable",
+    "unmanageableHint": "The agent is outdated, does not support SSH management, or its state has not been read yet. Update the agent and read it again to manage it.",
+    "noManageable": "No manageable nodes. Read the nodes first.",
+    "reason": "Reason",
+    "checkedAt": "Last checked",
+    "noState": "No state",
+    "noKeysShort": "No keys",
+    "rootReason": {
+      "keyOnly": "Keys only",
+      "rootDisabled": "Root disabled",
+      "forcedCommands": "Forced commands only",
+      "passwordOff": "Password auth off"
     }
   },
   "logs": {

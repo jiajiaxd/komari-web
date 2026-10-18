@@ -29,16 +29,18 @@ import {
   ChevronRight,
   KeyRound,
   Lock,
+  LockOpen,
   Network,
   Plus,
   RefreshCw,
   Trash2,
+  TriangleAlert,
   XCircle,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import Loading from "@/components/loading";
-import NodeSelector from "@/components/NodeSelector";
+import Selector from "@/components/Selector";
 import { useRPC2Call } from "@/contexts/RPC2Context";
 import {
   NodeDetailsProvider,
@@ -142,6 +144,27 @@ function permitRootLoginLabel(v: string) {
   return v === "without-password" ? "prohibit-password" : v;
 }
 
+// Why root cannot log in with a password, or "" when it can.
+function rootLoginReason(state: SSHState) {
+  if (state.root_password_login) return "";
+  switch (permitRootLoginLabel(state.permit_root_login)) {
+    case "no":
+      return "rootDisabled";
+    case "prohibit-password":
+      return "keyOnly";
+    case "forced-commands-only":
+      return "forcedCommands";
+  }
+  return state.password_authentication ? "" : "passwordOff";
+}
+
+// Nodes without a known SSH state, or whose agent cannot handle SSH
+// requests, cannot be changed from this page.
+function isManageable(entry?: SSHEntry, outcome?: Outcome) {
+  if (!entry?.state) return false;
+  return !(outcome && (outcome.status === "unsupported" || outcome.status === "outdated"));
+}
+
 function keyComment(k: { comment?: string; comments?: string[] }) {
   return k.comment ?? k.comments?.find(Boolean) ?? "";
 }
@@ -190,6 +213,42 @@ function keyLine(g: KeyGroup) {
   return comment ? `${g.type} ${g.key} ${comment}` : `${g.type} ${g.key}`;
 }
 
+const RELATIVE_UNITS: [Intl.RelativeTimeFormatUnit, number][] = [
+  ["year", 365 * 24 * 3600],
+  ["month", 30 * 24 * 3600],
+  ["day", 24 * 3600],
+  ["hour", 3600],
+  ["minute", 60],
+  ["second", 1],
+];
+
+function relativeTime(date: Date, language: string) {
+  const seconds = Math.round((date.getTime() - Date.now()) / 1000);
+  try {
+    const rtf = new Intl.RelativeTimeFormat(language.replace("_", "-"), { numeric: "auto" });
+    for (const [unit, size] of RELATIVE_UNITS) {
+      if (Math.abs(seconds) >= size || unit === "second") {
+        return rtf.format(Math.round(seconds / size), unit);
+      }
+    }
+  } catch {
+    // Unknown locale: fall through to the absolute time.
+  }
+  return date.toLocaleString();
+}
+
+const TimeAgo = ({ value }: { value: string }) => {
+  const { i18n } = useTranslation();
+  const date = new Date(value);
+  return (
+    <Tooltip content={date.toLocaleString()}>
+      <Text size="2" color="gray" className="whitespace-nowrap">
+        {relativeTime(date, i18n.language)}
+      </Text>
+    </Tooltip>
+  );
+};
+
 const SSHManagePage = () => (
   <NodeDetailsProvider>
     <SSHManageContent />
@@ -212,11 +271,21 @@ const SSHManageContent = () => {
     () => [...nodeDetail].sort((a, b) => (a.weight ?? 0) - (b.weight ?? 0)),
     [nodeDetail]
   );
+  const manageable = React.useMemo(
+    () => nodes.filter((n) => isManageable(entries[n.uuid], outcomes[n.uuid])),
+    [nodes, entries, outcomes]
+  );
+  const unmanageable = React.useMemo(
+    () => nodes.filter((n) => !manageable.includes(n)),
+    [nodes, manageable]
+  );
+  // Nodes that became unmanageable after a refresh drop out of the selection.
+  const selection = selected.filter((u) => manageable.some((n) => n.uuid === u));
   const nodeName = React.useCallback(
     (uuid: string) => nodes.find((n) => n.uuid === uuid)?.name || uuid,
     [nodes]
   );
-  const groups = React.useMemo(() => groupKeys(entries, nodes), [entries, nodes]);
+  const groups = React.useMemo(() => groupKeys(entries, manageable), [entries, manageable]);
 
   const load = React.useCallback(async () => {
     try {
@@ -302,7 +371,7 @@ const SSHManageContent = () => {
   if (isLoading || !loaded) return <Loading />;
   if (error) return <Text color="red">{error}</Text>;
 
-  const openDialog = (mode: ApplyMode) => setRequest({ mode, targets: selected });
+  const openDialog = (mode: ApplyMode) => setRequest({ mode, targets: selection });
 
   return (
     <Flex direction="column" gap="4" className="km-page-admin-ssh p-4">
@@ -333,18 +402,18 @@ const SSHManageContent = () => {
           </Button>
         </Flex>
         <Flex gap="2" align="center">
-          {selected.length > 0 && (
+          {selection.length > 0 && (
             <Text size="2" color="gray">
-              {t("sshManage.selectedCount", { count: selected.length })}
+              {t("sshManage.selectedCount", { count: selection.length })}
             </Text>
           )}
           <Button
             variant="soft"
             disabled={refreshing.length > 0}
-            onClick={() => refresh(selected.length > 0 ? selected : nodes.map((n) => n.uuid))}
+            onClick={() => refresh(selection.length > 0 ? selection : nodes.map((n) => n.uuid))}
           >
             <RefreshCw size={16} className={refreshing.length > 0 ? "animate-spin" : ""} />
-            {selected.length > 0 ? t("sshManage.refreshSelected") : t("sshManage.refreshAll")}
+            {selection.length > 0 ? t("sshManage.refreshSelected") : t("sshManage.refreshAll")}
           </Button>
         </Flex>
       </Flex>
@@ -356,26 +425,43 @@ const SSHManageContent = () => {
         </Tabs.List>
         <Box pt="3">
           <Tabs.Content value="servers">
-            <ServerView
-              nodes={nodes}
-              entries={entries}
-              outcomes={outcomes}
-              selected={selected}
-              onSelect={setSelected}
-              refreshing={refreshing}
-              onRefresh={(uuid) => refresh([uuid])}
-              onRemoveKey={(uuid, fp) => setRequest({ mode: "remove", targets: [uuid], remove: [fp] })}
-            />
+            {nodes.length === 0 ? (
+              <Text as="p" size="2" color="gray" className="py-10 text-center">
+                {t("sshManage.noNodes")}
+              </Text>
+            ) : (
+              <Flex direction="column" gap="5">
+                <ServerView
+                  nodes={manageable}
+                  entries={entries}
+                  outcomes={outcomes}
+                  selected={selection}
+                  onSelect={setSelected}
+                  refreshing={refreshing}
+                  onRefresh={(uuid) => refresh([uuid])}
+                  onRemoveKey={(uuid, fp) => setRequest({ mode: "remove", targets: [uuid], remove: [fp] })}
+                />
+                {unmanageable.length > 0 && (
+                  <UnmanageableView
+                    nodes={unmanageable}
+                    entries={entries}
+                    outcomes={outcomes}
+                    refreshing={refreshing}
+                    onRefresh={(uuid) => refresh([uuid])}
+                  />
+                )}
+              </Flex>
+            )}
           </Tabs.Content>
           <Tabs.Content value="keys">
             <KeyView
               groups={groups}
-              nodes={nodes}
+              nodes={manageable}
               nodeName={nodeName}
               onDeploy={(g) =>
                 setRequest({
                   mode: "add",
-                  targets: nodes.map((n) => n.uuid).filter((u) => !g.uuids.includes(u)),
+                  targets: manageable.map((n) => n.uuid).filter((u) => !g.uuids.includes(u)),
                   keys: keyLine(g),
                 })
               }
@@ -389,6 +475,8 @@ const SSHManageContent = () => {
         <ApplyDialog
           request={request}
           groups={groups}
+          nodes={manageable}
+          entries={entries}
           onClose={() => setRequest(null)}
           onApplied={onApplied}
         />
@@ -403,6 +491,89 @@ const SSHManageContent = () => {
 const StatusBadge = ({ status }: { status: OutcomeStatus }) => {
   const { t } = useTranslation();
   return <Badge color={STATUS_COLORS[status]}>{t(`sshManage.status.${status}`)}</Badge>;
+};
+
+const SectionTitle = ({
+  title,
+  count,
+  description,
+}: {
+  title: string;
+  count: number;
+  description?: string;
+}) => (
+  <Flex direction="column" gap="1">
+    <Flex gap="2" align="center">
+      <Text size="3" weight="bold">
+        {title}
+      </Text>
+      <Badge variant="soft" color="gray" radius="full">
+        {count}
+      </Badge>
+    </Flex>
+    {description && (
+      <Text size="1" color="gray">
+        {description}
+      </Text>
+    )}
+  </Flex>
+);
+
+const RootLogin = ({ state }: { state: SSHState }) => {
+  const { t } = useTranslation();
+  const reason = rootLoginReason(state);
+  return (
+    <Tooltip
+      content={`PermitRootLogin ${permitRootLoginLabel(state.permit_root_login)} · PasswordAuthentication ${
+        state.password_authentication ? "yes" : "no"
+      }`}
+    >
+      <Flex gap="2" align="center" className="w-fit whitespace-nowrap">
+        {state.root_password_login ? (
+          <Badge color="orange">
+            <LockOpen size={12} />
+            {t("sshManage.allowed")}
+          </Badge>
+        ) : (
+          <Badge color="green">
+            <Lock size={12} />
+            {t("sshManage.forbidden")}
+          </Badge>
+        )}
+        {reason && (
+          <Text size="1" color="gray">
+            {t(`sshManage.rootReason.${reason}`)}
+          </Text>
+        )}
+      </Flex>
+    </Tooltip>
+  );
+};
+
+const KeyChips = ({ keys }: { keys: SSHKey[] }) => {
+  const { t } = useTranslation();
+  if (keys.length === 0) {
+    return (
+      <Text size="2" color="gray">
+        {t("sshManage.noKeysShort")}
+      </Text>
+    );
+  }
+  return (
+    <Flex gap="1" align="center" wrap="wrap">
+      {keys.slice(0, 2).map((k) => (
+        <Badge key={k.fingerprint} variant="soft" color="gray" className="max-w-40">
+          <KeyRound size={12} className="shrink-0" />
+          <span className="truncate">{k.comment || shortType(k.type)}</span>
+        </Badge>
+      ))}
+      {keys.length > 2 && (
+        <Badge variant="soft" color="gray">
+          +{keys.length - 2}
+        </Badge>
+      )}
+    </Flex>
+  );
 };
 
 const ServerView = ({
@@ -431,159 +602,226 @@ const ServerView = ({
     onSelect(on ? [...selected, uuid] : selected.filter((u) => u !== uuid));
 
   return (
-    <div className="rounded-lg overflow-x-auto">
-      <Table>
-        <TableHeader>
-          <TableRow>
-            <TableHead className="w-8">
-              <Checkbox
-                checked={allSelected ? true : selected.length > 0 ? "indeterminate" : false}
-                onCheckedChange={(v) => onSelect(v === true ? nodes.map((n) => n.uuid) : [])}
-              />
-            </TableHead>
-            <TableHead>{t("sshManage.node")}</TableHead>
-            <TableHead>{t("sshManage.port")}</TableHead>
-            <TableHead>{t("sshManage.rootPasswordLogin")}</TableHead>
-            <TableHead>{t("sshManage.keys")}</TableHead>
-            <TableHead>{t("sshManage.updatedAt")}</TableHead>
-            <TableHead className="w-12" />
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {nodes.length === 0 ? (
+    <Flex direction="column" gap="2">
+      <SectionTitle title={t("sshManage.manageable")} count={nodes.length} />
+      <div className="rounded-lg overflow-x-auto">
+        <Table>
+          <TableHeader>
             <TableRow>
-              <TableCell colSpan={7} className="h-24 text-center">
-                {t("sshManage.noNodes")}
-              </TableCell>
+              <TableHead className="w-8">
+                <Checkbox
+                  disabled={nodes.length === 0}
+                  checked={allSelected ? true : selected.length > 0 ? "indeterminate" : false}
+                  onCheckedChange={(v) => onSelect(v === true ? nodes.map((n) => n.uuid) : [])}
+                />
+              </TableHead>
+              <TableHead>{t("sshManage.node")}</TableHead>
+              <TableHead>{t("sshManage.port")}</TableHead>
+              <TableHead>{t("sshManage.rootPasswordLogin")}</TableHead>
+              <TableHead>{t("sshManage.keys")}</TableHead>
+              <TableHead>{t("sshManage.updatedAt")}</TableHead>
+              <TableHead className="w-12" />
             </TableRow>
-          ) : (
-            nodes.map((node) => {
-              const entry = entries[node.uuid];
-              const state = entry?.state;
-              const outcome = outcomes[node.uuid];
-              const problem =
-                outcome && outcome.status !== "ok" ? outcome.error || outcome.status : entry?.error;
-              const open = expanded.includes(node.uuid);
-              const busy = refreshing.includes(node.uuid);
-              return (
-                <React.Fragment key={node.uuid}>
-                  <TableRow>
-                    <TableCell>
-                      <Checkbox
-                        checked={selected.includes(node.uuid)}
-                        onCheckedChange={(v) => toggle(node.uuid, v === true)}
-                      />
-                    </TableCell>
-                    <TableCell>
-                      <Flex direction="column" gap="1">
-                        <span>{node.name || node.uuid}</span>
-                        {problem && (
-                          <Flex gap="1" align="center" className="max-w-80">
-                            {outcome && outcome.status !== "ok" && <StatusBadge status={outcome.status} />}
-                            <Text size="1" color="red" className="break-all">
-                              {problem}
-                            </Text>
-                          </Flex>
-                        )}
-                      </Flex>
-                    </TableCell>
-                    <TableCell className="font-mono">
-                      {state ? state.ports.join(", ") || "-" : "-"}
-                    </TableCell>
-                    <TableCell>
-                      {state ? (
-                        <Flex direction="column" gap="1">
-                          <Badge color={state.root_password_login ? "orange" : "green"} className="w-fit">
-                            {state.root_password_login ? t("sshManage.allowed") : t("sshManage.forbidden")}
-                          </Badge>
-                          <Text size="1" color="gray" className="font-mono">
-                            PermitRootLogin {permitRootLoginLabel(state.permit_root_login)}
-                            {" · "}
-                            PasswordAuthentication {state.password_authentication ? "yes" : "no"}
-                          </Text>
-                        </Flex>
-                      ) : (
-                        "-"
-                      )}
-                    </TableCell>
-                    <TableCell>
-                      {state ? (
-                        <Button
-                          size="1"
-                          variant="ghost"
-                          onClick={() =>
-                            setExpanded(open ? expanded.filter((u) => u !== node.uuid) : [...expanded, node.uuid])
-                          }
-                        >
-                          {open ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-                          {t("sshManage.keyCount", { count: state.keys.length })}
-                        </Button>
-                      ) : (
-                        "-"
-                      )}
-                    </TableCell>
-                    <TableCell className="whitespace-nowrap">
-                      {entry?.state_at ? (
-                        new Date(entry.state_at).toLocaleString()
-                      ) : (
-                        <Text color="gray">{t("sshManage.neverRead")}</Text>
-                      )}
-                    </TableCell>
-                    <TableCell>
-                      <Tooltip content={t("common.refresh")}>
-                        <IconButton size="1" variant="ghost" disabled={busy} onClick={() => onRefresh(node.uuid)}>
-                          <RefreshCw size={14} className={busy ? "animate-spin" : ""} />
-                        </IconButton>
-                      </Tooltip>
-                    </TableCell>
-                  </TableRow>
-                  {open && state && (
+          </TableHeader>
+          <TableBody>
+            {nodes.length === 0 ? (
+              <TableRow>
+                <TableCell colSpan={7} className="h-24 text-center">
+                  <Text size="2" color="gray">
+                    {t("sshManage.noManageable")}
+                  </Text>
+                </TableCell>
+              </TableRow>
+            ) : (
+              nodes.map((node) => {
+                const entry = entries[node.uuid];
+                const state = entry.state!;
+                const outcome = outcomes[node.uuid];
+                const problem =
+                  outcome && outcome.status !== "ok" ? outcome.error || t(`sshManage.status.${outcome.status}`) : entry.error;
+                const open = expanded.includes(node.uuid);
+                const busy = refreshing.includes(node.uuid);
+                const toggleOpen = () =>
+                  setExpanded(open ? expanded.filter((u) => u !== node.uuid) : [...expanded, node.uuid]);
+                return (
+                  <React.Fragment key={node.uuid}>
                     <TableRow>
-                      <TableCell />
-                      <TableCell colSpan={6}>
-                        <Flex direction="column" gap="2" py="1">
-                          <Text size="1" color="gray" className="font-mono">
-                            {state.authorized_keys_path}
+                      <TableCell>
+                        <Checkbox
+                          checked={selected.includes(node.uuid)}
+                          onCheckedChange={(v) => toggle(node.uuid, v === true)}
+                        />
+                      </TableCell>
+                      <TableCell>
+                        <Flex gap="2" align="center" className="whitespace-nowrap">
+                          <Text size="2" weight="medium">
+                            {node.name || node.uuid}
                           </Text>
-                          {state.keys.length === 0 ? (
-                            <Text size="2" color="gray">
-                              {t("sshManage.noKeys")}
-                            </Text>
-                          ) : (
-                            state.keys.map((k) => (
-                              <Flex key={k.fingerprint} gap="3" align="center" wrap="wrap">
-                                <Badge variant="soft">{shortType(k.type)}</Badge>
-                                <KeyName k={k} />
-                                <Code size="1" variant="ghost" className="break-all">
-                                  {k.fingerprint}
-                                </Code>
-                                {k.options && (
-                                  <Tooltip content={k.options}>
-                                    <Badge color="gray">{t("sshManage.hasOptions")}</Badge>
-                                  </Tooltip>
-                                )}
-                                <IconButton
-                                  size="1"
-                                  variant="ghost"
-                                  color="red"
-                                  onClick={() => onRemoveKey(node.uuid, k.fingerprint)}
-                                >
-                                  <Trash2 size={14} />
-                                </IconButton>
-                              </Flex>
-                            ))
+                          {problem && (
+                            <Tooltip content={problem}>
+                              <TriangleAlert size={14} className="shrink-0 text-amber-500" />
+                            </Tooltip>
                           )}
                         </Flex>
                       </TableCell>
+                      <TableCell>
+                        <Code size="2" variant="ghost" color="gray" highContrast>
+                          {state.ports.join(", ") || "-"}
+                        </Code>
+                      </TableCell>
+                      <TableCell>
+                        <RootLogin state={state} />
+                      </TableCell>
+                      <TableCell>
+                        <button
+                          type="button"
+                          className="flex items-center gap-1 cursor-pointer bg-transparent border-0 p-0"
+                          onClick={toggleOpen}
+                        >
+                          {open ? (
+                            <ChevronDown size={14} className="shrink-0 text-gray-500" />
+                          ) : (
+                            <ChevronRight size={14} className="shrink-0 text-gray-500" />
+                          )}
+                          <KeyChips keys={state.keys} />
+                        </button>
+                      </TableCell>
+                      <TableCell>
+                        {entry.state_at ? <TimeAgo value={entry.state_at} /> : "-"}
+                      </TableCell>
+                      <TableCell>
+                        <Tooltip content={t("common.refresh")}>
+                          <IconButton size="1" variant="ghost" disabled={busy} onClick={() => onRefresh(node.uuid)}>
+                            <RefreshCw size={14} className={busy ? "animate-spin" : ""} />
+                          </IconButton>
+                        </Tooltip>
+                      </TableCell>
                     </TableRow>
-                  )}
-                </React.Fragment>
+                    {open && (
+                      <TableRow>
+                        <TableCell />
+                        <TableCell colSpan={6}>
+                          <Flex direction="column" gap="2" py="1">
+                            <Text size="1" color="gray" className="font-mono">
+                              {state.authorized_keys_path}
+                            </Text>
+                            {state.keys.length === 0 ? (
+                              <Text size="2" color="gray">
+                                {t("sshManage.noKeys")}
+                              </Text>
+                            ) : (
+                              state.keys.map((k) => (
+                                <Flex key={k.fingerprint} gap="3" align="center" wrap="wrap">
+                                  <Badge variant="soft">{shortType(k.type)}</Badge>
+                                  <KeyName k={k} />
+                                  <Code size="1" variant="ghost" color="gray" className="break-all">
+                                    {k.fingerprint}
+                                  </Code>
+                                  {k.options && (
+                                    <Tooltip content={k.options}>
+                                      <Badge color="gray">{t("sshManage.hasOptions")}</Badge>
+                                    </Tooltip>
+                                  )}
+                                  <IconButton
+                                    size="1"
+                                    variant="ghost"
+                                    color="red"
+                                    onClick={() => onRemoveKey(node.uuid, k.fingerprint)}
+                                  >
+                                    <Trash2 size={14} />
+                                  </IconButton>
+                                </Flex>
+                              ))
+                            )}
+                          </Flex>
+                        </TableCell>
+                      </TableRow>
+                    )}
+                  </React.Fragment>
+                );
+              })
+            )}
+          </TableBody>
+        </Table>
+      </div>
+    </Flex>
+  );
+};
+
+const UnmanageableView = ({
+  nodes,
+  entries,
+  outcomes,
+  refreshing,
+  onRefresh,
+}: {
+  nodes: NodeDetail[];
+  entries: Record<string, SSHEntry>;
+  outcomes: Record<string, Outcome>;
+  refreshing: string[];
+  onRefresh: (uuid: string) => void;
+}) => {
+  const { t } = useTranslation();
+  return (
+    <Flex direction="column" gap="2">
+      <SectionTitle
+        title={t("sshManage.unmanageable")}
+        count={nodes.length}
+        description={t("sshManage.unmanageableHint")}
+      />
+      <div className="rounded-lg overflow-x-auto opacity-80">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>{t("sshManage.node")}</TableHead>
+              <TableHead>{t("sshManage.reason")}</TableHead>
+              <TableHead>{t("sshManage.checkedAt")}</TableHead>
+              <TableHead className="w-12" />
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {nodes.map((node) => {
+              const entry = entries[node.uuid];
+              const outcome = outcomes[node.uuid];
+              const failed = outcome && outcome.status !== "ok" ? outcome : undefined;
+              const message = failed ? failed.error : entry?.error;
+              const busy = refreshing.includes(node.uuid);
+              return (
+                <TableRow key={node.uuid}>
+                  <TableCell className="whitespace-nowrap">
+                    <Text size="2">{node.name || node.uuid}</Text>
+                  </TableCell>
+                  <TableCell>
+                    <Flex gap="2" align="center">
+                      {failed ? (
+                        <StatusBadge status={failed.status} />
+                      ) : (
+                        <Badge color="gray">
+                          {entry ? t("sshManage.noState") : t("sshManage.neverRead")}
+                        </Badge>
+                      )}
+                      {message && (
+                        <Text size="1" color="gray" className="break-all line-clamp-2">
+                          {message}
+                        </Text>
+                      )}
+                    </Flex>
+                  </TableCell>
+                  <TableCell>{entry?.checked_at ? <TimeAgo value={entry.checked_at} /> : "-"}</TableCell>
+                  <TableCell>
+                    <Tooltip content={t("common.refresh")}>
+                      <IconButton size="1" variant="ghost" disabled={busy} onClick={() => onRefresh(node.uuid)}>
+                        <RefreshCw size={14} className={busy ? "animate-spin" : ""} />
+                      </IconButton>
+                    </Tooltip>
+                  </TableCell>
+                </TableRow>
               );
-            })
-          )}
-        </TableBody>
-      </Table>
-    </div>
+            })}
+          </TableBody>
+        </Table>
+      </div>
+    </Flex>
   );
 };
 
@@ -637,7 +875,7 @@ const KeyView = ({
                     </Flex>
                   </TableCell>
                   <TableCell>
-                    <Code size="1" variant="ghost" className="break-all">
+                    <Code size="1" variant="ghost" color="gray" className="break-all">
                       {g.fingerprint}
                     </Code>
                   </TableCell>
@@ -694,14 +932,26 @@ function parseKeyLines(text: string) {
   return { lines, invalid: lines.filter((l) => !KEY_LINE.test(l)) };
 }
 
+// Whether every key line is already in the node's authorized_keys.
+function hasAllKeys(state: SSHState, lines: string[]) {
+  return lines.every((line) => {
+    const [type, key] = line.split(/\s+/);
+    return state.keys.some((k) => k.type === type && k.key === key);
+  });
+}
+
 const ApplyDialog = ({
   request,
   groups,
+  nodes,
+  entries,
   onClose,
   onApplied,
 }: {
   request: ApplyRequest;
   groups: KeyGroup[];
+  nodes: NodeDetail[];
+  entries: Record<string, SSHEntry>;
   onClose: () => void;
   onApplied: (results: Outcome[]) => void;
 }) => {
@@ -724,21 +974,40 @@ const ApplyDialog = ({
       .catch(() => setTwoFaEnabled(false));
   }, []);
 
-  // Keys installed on any of the chosen servers, plus preselected ones.
-  const removable = groups.filter(
-    (g) => remove.includes(g.fingerprint) || g.uuids.some((u) => targets.includes(u))
-  );
   const parsed = parseKeyLines(keysText);
+  const keysValid = parsed.lines.length > 0 && parsed.invalid.length === 0;
   const portNumber = Number(port);
   const portValid = Number.isInteger(portNumber) && portNumber >= 1 && portNumber <= 65535;
 
-  let valid = targets.length > 0 && (!twoFaEnabled || twoFaCode.trim() !== "");
-  if (mode === "add") valid &&= parsed.lines.length > 0 && parsed.invalid.length === 0;
+  // The change comes first; only nodes it would actually change are offered.
+  const stateOf = (n: NodeDetail) => entries[n.uuid].state!;
+  let pending: string | null = null;
+  let candidates = nodes;
+  if (mode === "add") {
+    if (keysValid) candidates = nodes.filter((n) => !hasAllKeys(stateOf(n), parsed.lines));
+    else pending = t("sshManage.dialog.add.first");
+  }
+  if (mode === "remove") {
+    if (remove.length > 0)
+      candidates = nodes.filter((n) => stateOf(n).keys.some((k) => remove.includes(k.fingerprint)));
+    else pending = t("sshManage.dialog.remove.first");
+  }
+  if (mode === "port" && portValid) {
+    candidates = nodes.filter((n) => stateOf(n).ports.join() !== String(portNumber));
+  }
+  if (mode === "root") {
+    candidates = nodes.filter((n) => stateOf(n).root_password_login !== (rootLogin === "allow"));
+  }
+  const hidden = nodes.length - candidates.length;
+  const chosen = pending ? [] : targets.filter((u) => candidates.some((n) => n.uuid === u));
+
+  let valid = chosen.length > 0 && (!twoFaEnabled || twoFaCode.trim() !== "");
+  if (mode === "add") valid &&= keysValid;
   if (mode === "remove") valid &&= remove.length > 0;
   if (mode === "port") valid &&= portValid;
 
   const submit = async () => {
-    const params: ApplyParams = { uuids: targets };
+    const params: ApplyParams = { uuids: chosen };
     if (mode === "add") params.add_keys = parsed.lines;
     if (mode === "remove") params.remove_keys = remove;
     if (mode === "port") params.port = portNumber;
@@ -757,6 +1026,21 @@ const ApplyDialog = ({
     }
   };
 
+  const targetLabel = (n: NodeDetail) => {
+    const state = stateOf(n);
+    return (
+      <Flex gap="2" align="center" justify="between">
+        <Text size="2">{n.name || n.uuid}</Text>
+        {mode === "port" && (
+          <Code size="1" variant="ghost" color="gray">
+            {state.ports.join(", ") || "-"}
+          </Code>
+        )}
+        {mode === "root" && <RootLogin state={state} />}
+      </Flex>
+    );
+  };
+
   return (
     <Dialog.Root open onOpenChange={(open) => !open && !submitting && onClose()}>
       <Dialog.Content maxWidth="640px">
@@ -770,7 +1054,7 @@ const ApplyDialog = ({
             <Flex direction="column" gap="1">
               <label className="text-sm font-bold">{t("sshManage.dialog.add.keys")}</label>
               <TextArea
-                rows={5}
+                rows={4}
                 spellCheck={false}
                 className="font-mono"
                 value={keysText}
@@ -792,13 +1076,13 @@ const ApplyDialog = ({
           {mode === "remove" && (
             <Flex direction="column" gap="1">
               <label className="text-sm font-bold">{t("sshManage.dialog.remove.keys")}</label>
-              {removable.length === 0 ? (
+              {groups.length === 0 ? (
                 <Text size="2" color="gray">
                   {t("sshManage.dialog.remove.none")}
                 </Text>
               ) : (
-                <Flex direction="column" gap="2" className="max-h-56 overflow-y-auto">
-                  {removable.map((g) => (
+                <Flex direction="column" gap="2" className="max-h-48 overflow-y-auto">
+                  {groups.map((g) => (
                     <Text as="label" size="2" key={g.fingerprint}>
                       <Flex gap="2" align="center">
                         <Checkbox
@@ -813,9 +1097,12 @@ const ApplyDialog = ({
                         />
                         <Badge variant="soft">{shortType(g.type)}</Badge>
                         <KeyName k={g} />
-                        <Code size="1" variant="ghost" className="break-all">
+                        <Code size="1" variant="ghost" color="gray" className="truncate">
                           {g.fingerprint}
                         </Code>
+                        <Text size="1" color="gray" className="ml-auto whitespace-nowrap">
+                          {t("sshManage.serverCount", { count: g.uuids.length, total: nodes.length })}
+                        </Text>
                       </Flex>
                     </Text>
                   ))}
@@ -862,8 +1149,44 @@ const ApplyDialog = ({
           )}
 
           <Flex direction="column" gap="1">
-            <label className="text-sm font-bold">{t("sshManage.targets")}</label>
-            <NodeSelector value={targets} onChange={setTargets} hiddenDescription />
+            <Flex justify="between" align="center">
+              <label className="text-sm font-bold">{t("sshManage.targets")}</label>
+              {!pending && (
+                <Text size="1" color="gray">
+                  {t("common.selected_total", { count: chosen.length, total: candidates.length })}
+                </Text>
+              )}
+            </Flex>
+            {pending ? (
+              <Text as="p" size="2" color="gray" className="rounded-md border border-dashed py-6 text-center">
+                {pending}
+              </Text>
+            ) : candidates.length === 0 ? (
+              <Text as="p" size="2" color="gray" className="rounded-md border border-dashed py-6 text-center">
+                {nodes.length === 0 ? t("sshManage.noManageable") : t("sshManage.dialog.nothingToChange")}
+              </Text>
+            ) : (
+              <div className="max-h-64 overflow-y-auto">
+                <Selector
+                  hiddenDescription
+                  value={chosen}
+                  onChange={setTargets}
+                  items={candidates}
+                  getId={(n) => n.uuid}
+                  getLabel={targetLabel}
+                  filterItem={(n, kw) => (n.name || n.uuid).toLowerCase().includes(kw.toLowerCase())}
+                  searchPlaceholder={t("common.search")}
+                  headerLabel={t("common.server")}
+                />
+              </div>
+            )}
+            {!pending && hidden > 0 && (
+              <Text size="1" color="gray">
+                {t(mode === "remove" ? "sshManage.dialog.hiddenWithoutKey" : "sshManage.dialog.hiddenUnchanged", {
+                  count: hidden,
+                })}
+              </Text>
+            )}
           </Flex>
 
           <Text size="1" color="gray">
@@ -892,7 +1215,7 @@ const ApplyDialog = ({
             {submitting && <RefreshCw size={14} className="animate-spin" />}
             {submitting
               ? t("sshManage.applying")
-              : t("sshManage.applyTo", { count: targets.length })}
+              : t("sshManage.applyTo", { count: chosen.length })}
           </Button>
         </Flex>
       </Dialog.Content>
