@@ -771,6 +771,92 @@
     "maxRecordsDescription": "The oldest records are deleted beyond this count. Default 1000.",
     "positiveInteger": "Please enter a positive integer"
   },
+  "sshManage": {
+    "title": "SSH Management",
+    "description": "View and batch-edit root's authorized SSH keys, the SSH port and whether root may log in with a password. After every change the agent restarts sshd and verifies the result on disk and on the running daemon.",
+    "addKeys": "Add keys",
+    "removeKeys": "Remove keys",
+    "changePort": "SSH port",
+    "rootPasswordLogin": "Root password login",
+    "refreshAll": "Read all",
+    "refreshSelected": "Read selected",
+    "refreshResult": "Read {{ok}} node(s), {{failed}} failed",
+    "selectedCount": "{{count}} selected",
+    "byServer": "By server",
+    "byKey": "By key",
+    "node": "Node",
+    "port": "Port",
+    "keys": "Public keys",
+    "keyCount": "{{count}} key(s)",
+    "updatedAt": "Read at",
+    "neverRead": "Never read",
+    "noNodes": "No nodes",
+    "noKeys": "No authorized keys",
+    "noKeysAnywhere": "No keys found. Read the nodes first.",
+    "noComment": "No comment",
+    "hasOptions": "options",
+    "allowed": "Allowed",
+    "forbidden": "Forbidden",
+    "allow": "Allow",
+    "forbid": "Forbid",
+    "key": "Key",
+    "fingerprint": "Fingerprint",
+    "installedOn": "Installed on",
+    "serverCount": "{{count}} / {{total}} node(s)",
+    "deployToOthers": "Deploy to others",
+    "targets": "Target nodes",
+    "applying": "Applying…",
+    "applyTo": "Apply to {{count}} node(s)",
+    "status": {
+      "ok": "Done",
+      "failed": "Failed",
+      "offline": "Offline",
+      "unsupported": "Unsupported",
+      "timeout": "No answer"
+    },
+    "dialog": {
+      "restartNote": "The agent applies the change, restarts the SSH service and checks that it was written to disk and is in effect. Existing SSH sessions stay connected. Agents need to be updated to a version that supports SSH management.",
+      "add": {
+        "title": "Add public keys",
+        "description": "Append the keys to root's ~/.ssh/authorized_keys. Keys that are already installed are skipped.",
+        "keys": "Public keys (one per line)",
+        "hint": "{{count}} key(s)",
+        "invalid": "Not an OpenSSH public key: {{line}}"
+      },
+      "remove": {
+        "title": "Remove public keys",
+        "description": "Remove the selected keys from root's ~/.ssh/authorized_keys on the target nodes.",
+        "keys": "Keys to remove",
+        "none": "The target nodes have no known keys. Read them first.",
+        "warning": "Make sure you can still log in afterwards, for example with another key or with password login."
+      },
+      "port": {
+        "title": "Change SSH port",
+        "description": "Set the port sshd listens on. Other Port directives, including ones in sshd_config.d, are commented out.",
+        "warning": "Open the new port in the firewall and the cloud security group first. The agent reverts the change if sshd does not answer on the new port, but it cannot see external firewalls."
+      },
+      "root": {
+        "title": "Root password login",
+        "description": "Allow or forbid root to log in over SSH with a password.",
+        "allowHint": "Sets PermitRootLogin yes and PasswordAuthentication yes.",
+        "forbidHint": "Sets PermitRootLogin prohibit-password, so root can still log in with keys. Nodes where root login is already restricted are left unchanged."
+      }
+    },
+    "results": {
+      "title": "Results",
+      "summary": "{{ok}} node(s) succeeded, {{failed}} failed",
+      "restarted": "sshd restarted",
+      "rolledBack": "Config reverted",
+      "unchanged": "Already up to date"
+    },
+    "checks": {
+      "service_restart": "Restart SSH service",
+      "authorized_keys": "authorized_keys on disk",
+      "sshd_config": "sshd_config on disk",
+      "effective_config": "Effective sshd settings",
+      "port_listening": "SSH answering on port"
+    }
+  },
   "logs": {
     "title": "Logs"
   },
