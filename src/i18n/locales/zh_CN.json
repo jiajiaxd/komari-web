@@ -751,92 +751,6 @@
     "user": "用户",
     "wholeCountry": "整个国家"
   },
-  "sshManage": {
-    "title": "SSH 管理",
-    "description": "查看并批量修改各节点 root 的 SSH 公钥、SSH 端口以及是否允许 root 密码登录。每次修改后 agent 会自动重启 SSH 服务，并检查改动是否已落盘并生效。",
-    "addKeys": "下发公钥",
-    "removeKeys": "删除公钥",
-    "changePort": "SSH 端口",
-    "rootPasswordLogin": "root 密码登录",
-    "refreshAll": "读取全部",
-    "refreshSelected": "读取所选",
-    "refreshResult": "已读取 {{ok}} 个节点，{{failed}} 个失败",
-    "selectedCount": "已选 {{count}} 个",
-    "byServer": "按服务器",
-    "byKey": "按公钥",
-    "node": "节点",
-    "port": "端口",
-    "keys": "公钥",
-    "keyCount": "{{count}} 个公钥",
-    "updatedAt": "读取时间",
-    "neverRead": "尚未读取",
-    "noNodes": "暂无节点",
-    "noKeys": "没有已授权的公钥",
-    "noKeysAnywhere": "没有找到公钥，请先读取节点。",
-    "noComment": "无备注",
-    "hasOptions": "带选项",
-    "allowed": "允许",
-    "forbidden": "禁止",
-    "allow": "允许",
-    "forbid": "禁止",
-    "key": "公钥",
-    "fingerprint": "指纹",
-    "installedOn": "已部署节点",
-    "serverCount": "{{count}} / {{total}} 个节点",
-    "deployToOthers": "下发到其他节点",
-    "targets": "目标节点",
-    "applying": "执行中…",
-    "applyTo": "应用到 {{count}} 个节点",
-    "status": {
-      "ok": "成功",
-      "failed": "失败",
-      "offline": "离线",
-      "unsupported": "不支持",
-      "timeout": "无响应"
-    },
-    "dialog": {
-      "restartNote": "agent 会执行修改、重启 SSH 服务，并检查改动已写入磁盘且已生效。已建立的 SSH 会话不会断开。需要将 agent 更新到支持 SSH 管理的版本。",
-      "add": {
-        "title": "下发公钥",
-        "description": "把公钥追加到 root 的 ~/.ssh/authorized_keys，已存在的公钥会跳过。",
-        "keys": "公钥（每行一个）",
-        "hint": "共 {{count}} 个公钥",
-        "invalid": "不是有效的 OpenSSH 公钥：{{line}}"
-      },
-      "remove": {
-        "title": "删除公钥",
-        "description": "从目标节点 root 的 ~/.ssh/authorized_keys 中删除所选公钥。",
-        "keys": "要删除的公钥",
-        "none": "目标节点没有已知的公钥，请先读取。",
-        "warning": "请确认删除后仍能登录，例如还有其他公钥或已允许密码登录。"
-      },
-      "port": {
-        "title": "修改 SSH 端口",
-        "description": "设置 sshd 监听的端口。其他 Port 配置（包括 sshd_config.d 中的）会被注释掉。",
-        "warning": "请先在防火墙和云服务商安全组中放行新端口。若 sshd 在新端口上没有响应，agent 会自动回滚，但无法检测外部防火墙。"
-      },
-      "root": {
-        "title": "root 密码登录",
-        "description": "允许或禁止 root 通过密码登录 SSH。",
-        "allowHint": "设置 PermitRootLogin yes 与 PasswordAuthentication yes。",
-        "forbidHint": "设置 PermitRootLogin prohibit-password，root 仍可使用公钥登录。已限制 root 登录的节点保持不变。"
-      }
-    },
-    "results": {
-      "title": "执行结果",
-      "summary": "{{ok}} 个节点成功，{{failed}} 个失败",
-      "restarted": "已重启 sshd",
-      "rolledBack": "配置已回滚",
-      "unchanged": "无需修改"
-    },
-    "checks": {
-      "service_restart": "重启 SSH 服务",
-      "authorized_keys": "authorized_keys 已落盘",
-      "sshd_config": "sshd_config 已落盘",
-      "effective_config": "sshd 生效配置",
-      "port_listening": "端口 SSH 可连接"
-    }
-  },
   "logs": {
     "title": "日志"
   },
@@ -1653,6 +1567,92 @@
       "target_description": "选择本地 SQLite，或将指标数据写入远程 MariaDB / MySQL / PostgreSQL。",
       "title": "监控数据库升级"
     }
+  },
+  "sshManage": {
+    "addKeys": "下发公钥",
+    "allow": "允许",
+    "allowed": "允许",
+    "applying": "执行中…",
+    "applyTo": "应用到 {{count}} 个节点",
+    "byKey": "按公钥",
+    "byServer": "按服务器",
+    "changePort": "SSH 端口",
+    "checks": {
+      "authorized_keys": "authorized_keys 已落盘",
+      "effective_config": "sshd 生效配置",
+      "port_listening": "端口 SSH 可连接",
+      "service_restart": "重启 SSH 服务",
+      "sshd_config": "sshd_config 已落盘"
+    },
+    "deployToOthers": "下发到其他节点",
+    "description": "查看并批量修改各节点 root 的 SSH 公钥、SSH 端口以及是否允许 root 密码登录。每次修改后 agent 会自动重启 SSH 服务，并检查改动是否已落盘并生效。",
+    "dialog": {
+      "add": {
+        "description": "把公钥追加到 root 的 ~/.ssh/authorized_keys，已存在的公钥会跳过。",
+        "hint": "共 {{count}} 个公钥",
+        "invalid": "不是有效的 OpenSSH 公钥：{{line}}",
+        "keys": "公钥（每行一个）",
+        "title": "下发公钥"
+      },
+      "port": {
+        "description": "设置 sshd 监听的端口。其他 Port 配置（包括 sshd_config.d 中的）会被注释掉。",
+        "title": "修改 SSH 端口",
+        "warning": "请先在防火墙和云服务商安全组中放行新端口。若 sshd 在新端口上没有响应，agent 会自动回滚，但无法检测外部防火墙。"
+      },
+      "remove": {
+        "description": "从目标节点 root 的 ~/.ssh/authorized_keys 中删除所选公钥。",
+        "keys": "要删除的公钥",
+        "none": "目标节点没有已知的公钥，请先读取。",
+        "title": "删除公钥",
+        "warning": "请确认删除后仍能登录，例如还有其他公钥或已允许密码登录。"
+      },
+      "restartNote": "agent 会执行修改、重启 SSH 服务，并检查改动已写入磁盘且已生效。已建立的 SSH 会话不会断开。需要将 agent 更新到支持 SSH 管理的版本。",
+      "root": {
+        "allowHint": "设置 PermitRootLogin yes 与 PasswordAuthentication yes。",
+        "description": "允许或禁止 root 通过密码登录 SSH。",
+        "forbidHint": "设置 PermitRootLogin prohibit-password，root 仍可使用公钥登录。已限制 root 登录的节点保持不变。",
+        "title": "root 密码登录"
+      }
+    },
+    "fingerprint": "指纹",
+    "forbid": "禁止",
+    "forbidden": "禁止",
+    "hasOptions": "带选项",
+    "installedOn": "已部署节点",
+    "key": "公钥",
+    "keyCount": "{{count}} 个公钥",
+    "keys": "公钥",
+    "neverRead": "尚未读取",
+    "noComment": "无备注",
+    "node": "节点",
+    "noKeys": "没有已授权的公钥",
+    "noKeysAnywhere": "没有找到公钥，请先读取节点。",
+    "noNodes": "暂无节点",
+    "port": "端口",
+    "refreshAll": "读取全部",
+    "refreshResult": "已读取 {{ok}} 个节点，{{failed}} 个失败",
+    "refreshSelected": "读取所选",
+    "removeKeys": "删除公钥",
+    "results": {
+      "restarted": "已重启 sshd",
+      "rolledBack": "配置已回滚",
+      "summary": "{{ok}} 个节点成功，{{failed}} 个失败",
+      "title": "执行结果",
+      "unchanged": "无需修改"
+    },
+    "rootPasswordLogin": "root 密码登录",
+    "selectedCount": "已选 {{count}} 个",
+    "serverCount": "{{count}} / {{total}} 个节点",
+    "status": {
+      "failed": "失败",
+      "offline": "离线",
+      "ok": "成功",
+      "timeout": "无响应",
+      "unsupported": "不支持"
+    },
+    "targets": "目标节点",
+    "title": "SSH 管理",
+    "updatedAt": "读取时间"
   },
   "status_settings": "状态显示设置",
   "system": {
