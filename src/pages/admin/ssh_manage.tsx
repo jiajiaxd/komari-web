@@ -91,7 +91,7 @@ interface SSHResult {
   checks?: SSHCheck[];
 }
 
-type OutcomeStatus = "ok" | "failed" | "offline" | "unsupported" | "timeout";
+type OutcomeStatus = "ok" | "failed" | "offline" | "unsupported" | "outdated" | "timeout";
 
 interface Outcome {
   uuid: string;
@@ -131,8 +131,11 @@ const STATUS_COLORS: Record<OutcomeStatus, "green" | "red" | "gray" | "orange"> 
   failed: "red",
   offline: "gray",
   unsupported: "gray",
+  outdated: "orange",
   timeout: "orange",
 };
+
+const REFRESH_CONCURRENCY = 8;
 
 // sshd -T prints the legacy alias of prohibit-password.
 function permitRootLoginLabel(v: string) {
@@ -236,28 +239,48 @@ const SSHManageContent = () => {
     });
   }, []);
 
+  // Query nodes individually so that every row updates as soon as its agent
+  // answers instead of waiting for the slowest one.
   const refresh = React.useCallback(
     async (uuids: string[]) => {
       if (uuids.length === 0) return;
-      setRefreshing(uuids);
-      try {
-        const res = await call<{ uuids: string[] }, { results: Outcome[] }>(
-          "admin:refreshSSHStates",
-          { uuids },
-          { timeout: 90000 }
-        );
-        const list = res?.results ?? [];
-        rememberOutcomes(list);
-        const ok = list.filter((o) => o.status === "ok").length;
-        const summary = t("sshManage.refreshResult", { ok, failed: list.length - ok });
-        if (ok === list.length) toast.success(summary);
-        else toast.warning(summary);
-        await load();
-      } catch (e) {
-        toast.error(e instanceof Error ? e.message : String(e));
-      } finally {
-        setRefreshing([]);
-      }
+      setRefreshing((prev) => [...new Set([...prev, ...uuids])]);
+      const queue = [...uuids];
+      const list: Outcome[] = [];
+      const refreshOne = async (uuid: string) => {
+        let outcome: Outcome;
+        try {
+          const res = await call<{ uuids: string[] }, { results: Outcome[] }>(
+            "admin:refreshSSHStates",
+            { uuids: [uuid] },
+            { timeout: 30000 }
+          );
+          outcome = res?.results?.[0] ?? { uuid, status: "failed" };
+        } catch (e) {
+          outcome = { uuid, status: "failed", error: e instanceof Error ? e.message : String(e) };
+        }
+        list.push(outcome);
+        rememberOutcomes([outcome]);
+        const state = outcome.result?.state;
+        if (state) {
+          setEntries((prev) => ({
+            ...prev,
+            [uuid]: { ...prev[uuid], uuid, state, state_at: new Date().toISOString(), error: "" },
+          }));
+        }
+        setRefreshing((prev) => prev.filter((u) => u !== uuid));
+      };
+      const worker = async () => {
+        for (let uuid = queue.shift(); uuid; uuid = queue.shift()) {
+          await refreshOne(uuid);
+        }
+      };
+      await Promise.all(Array.from({ length: Math.min(REFRESH_CONCURRENCY, uuids.length) }, worker));
+      const ok = list.filter((o) => o.status === "ok").length;
+      const summary = t("sshManage.refreshResult", { ok, failed: list.length - ok });
+      if (ok === list.length) toast.success(summary);
+      else toast.warning(summary);
+      await load();
     },
     [call, load, rememberOutcomes, t]
   );
@@ -455,7 +478,7 @@ const ServerView = ({
                       <Flex direction="column" gap="1">
                         <span>{node.name || node.uuid}</span>
                         {problem && (
-                          <Flex gap="1" align="center">
+                          <Flex gap="1" align="center" className="max-w-80">
                             {outcome && outcome.status !== "ok" && <StatusBadge status={outcome.status} />}
                             <Text size="1" color="red" className="break-all">
                               {problem}
