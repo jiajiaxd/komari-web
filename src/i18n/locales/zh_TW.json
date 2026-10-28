@@ -1620,5 +1620,13 @@
     "mode": "顯示模式"
   },
   "warn_https": "當前連線不是 HTTPS！您的敏感資料存在嚴重風險。請立即採取措施確保連線安全！複製操作可能無法使用！",
-  "warn_websocket": "RPC2 請求失敗，請檢查網路連線或伺服器狀態！"
+  "warn_websocket": "RPC2 請求失敗，請檢查網路連線或伺服器狀態！",
+  "sshManage": {
+    "dailyRefresh": "每天凌晨 03:00（UTC+8）自動讀取線上節點的 SSH 設定。",
+    "editRemark": "編輯備註",
+    "remark": "公鑰備註",
+    "remarkHint": "備註會套用至使用此公鑰的所有節點，並在自動讀取後保留。留空恢復公鑰原有註解；無註解時顯示金鑰類型。",
+    "remarkSaved": "備註已儲存",
+    "remarkSaveFailed": "備註儲存失敗"
+  }
 }

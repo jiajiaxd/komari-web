@@ -1569,6 +1569,12 @@
     }
   },
   "sshManage": {
+    "dailyRefresh": "每天凌晨 03:00（UTC+8）自动读取在线节点的 SSH 配置。",
+    "editRemark": "编辑备注",
+    "remark": "公钥备注",
+    "remarkHint": "备注会应用于使用此公钥的所有节点，并在自动读取后保留。留空恢复公钥原有注释；无注释时显示密钥类型。",
+    "remarkSaved": "备注已保存",
+    "remarkSaveFailed": "备注保存失败",
     "addKeys": "下发公钥",
     "allow": "允许",
     "allowed": "允许",

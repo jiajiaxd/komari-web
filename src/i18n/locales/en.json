@@ -772,6 +772,12 @@
     "positiveInteger": "Please enter a positive integer"
   },
   "sshManage": {
+    "dailyRefresh": "SSH settings of online nodes are refreshed daily at 03:00 (UTC+8).",
+    "editRemark": "Edit remark",
+    "remark": "Key remark",
+    "remarkHint": "This remark applies to every node using this key and survives automatic refreshes. Leave empty to restore the original key comment, or the key type if there is no comment.",
+    "remarkSaved": "Remark saved",
+    "remarkSaveFailed": "Failed to save remark",
     "title": "SSH Management",
     "description": "View and batch-edit root's authorized SSH keys, the SSH port and whether root may log in with a password. After every change the agent restarts sshd and verifies the result on disk and on the running daemon.",
     "addKeys": "Add keys",

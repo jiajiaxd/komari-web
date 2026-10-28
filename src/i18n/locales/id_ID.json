@@ -1645,5 +1645,13 @@
     "mode": "Mode Tampilan"
   },
   "warn_https": "Koneksi saat ini bukan HTTPS! Data sensitif Anda berisiko. Amankan koneksi sekarang! Fitur salin mungkin tidak tersedia!",
-  "warn_websocket": "Permintaan RPC2 gagal, periksa koneksi jaringan atau status server!"
+  "warn_websocket": "Permintaan RPC2 gagal, periksa koneksi jaringan atau status server!",
+  "sshManage": {
+    "dailyRefresh": "Pengaturan SSH node online diperbarui setiap hari pukul 03:00 (UTC+8).",
+    "editRemark": "Edit catatan",
+    "remark": "Catatan kunci",
+    "remarkHint": "Catatan ini berlaku untuk semua node yang menggunakan kunci ini dan tetap tersimpan setelah pembaruan otomatis. Kosongkan untuk menampilkan komentar asli, atau jenis kunci jika tidak ada komentar.",
+    "remarkSaved": "Catatan disimpan",
+    "remarkSaveFailed": "Gagal menyimpan catatan"
+  }
 }

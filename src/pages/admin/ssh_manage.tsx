@@ -31,6 +31,7 @@ import {
   Lock,
   LockOpen,
   Network,
+  Pencil,
   Plus,
   RefreshCw,
   Trash2,
@@ -52,6 +53,7 @@ interface SSHKey {
   type: string;
   key: string;
   comment?: string;
+  remark?: string;
   options?: string;
   fingerprint: string;
 }
@@ -107,6 +109,7 @@ interface KeyGroup {
   type: string;
   key: string;
   comments: string[];
+  remark?: string;
   uuids: string[];
 }
 
@@ -165,11 +168,11 @@ function isManageable(entry?: SSHEntry, outcome?: Outcome) {
   return !(outcome && (outcome.status === "unsupported" || outcome.status === "outdated"));
 }
 
-function keyComment(k: { comment?: string; comments?: string[] }) {
-  return k.comment ?? k.comments?.find(Boolean) ?? "";
+function keyComment(k: { remark?: string; comment?: string; comments?: string[] }) {
+  return k.remark?.trim() || k.comment?.trim() || k.comments?.find((c) => c.trim())?.trim() || "";
 }
 
-const KeyName = ({ k }: { k: { comment?: string; comments?: string[] } }) => {
+const KeyName = ({ k }: { k: { remark?: string; comment?: string; comments?: string[] } }) => {
   const { t } = useTranslation();
   const comment = keyComment(k);
   return comment ? (
@@ -196,7 +199,7 @@ function groupKeys(entries: Record<string, SSHEntry>, nodes: NodeDetail[]) {
     entries[node.uuid]?.state?.keys.forEach((k) => {
       let g = groups.get(k.fingerprint);
       if (!g) {
-        g = { fingerprint: k.fingerprint, type: k.type, key: k.key, comments: [], uuids: [] };
+        g = { fingerprint: k.fingerprint, type: k.type, key: k.key, remark: k.remark, comments: [], uuids: [] };
         groups.set(k.fingerprint, g);
       }
       if (k.comment && !g.comments.includes(k.comment)) g.comments.push(k.comment);
@@ -259,7 +262,18 @@ const SSHManageContent = () => {
   const { t } = useTranslation();
   const { call } = useRPC2Call();
   const { nodeDetail, isLoading, error } = useNodeDetails();
-  const [entries, setEntries] = React.useState<Record<string, SSHEntry>>({});
+  const [rawEntries, setEntries] = React.useState<Record<string, SSHEntry>>({});
+  const [remarks, setRemarks] = React.useState<Record<string, string>>({});
+  const [editingKey, setEditingKey] = React.useState<KeyGroup | null>(null);
+  const entries = React.useMemo(() => Object.fromEntries(
+    Object.entries(rawEntries).map(([uuid, entry]) => [uuid, {
+      ...entry,
+      state: entry.state ? {
+        ...entry.state,
+        keys: entry.state.keys.map((k) => ({ ...k, remark: remarks[k.fingerprint] })),
+      } : null,
+    }])
+  ), [rawEntries, remarks]);
   const [outcomes, setOutcomes] = React.useState<Record<string, Outcome>>({});
   const [loaded, setLoaded] = React.useState(false);
   const [selected, setSelected] = React.useState<string[]>([]);
@@ -289,10 +303,11 @@ const SSHManageContent = () => {
 
   const load = React.useCallback(async () => {
     try {
-      const res = await call<undefined, { states: SSHEntry[] }>("admin:getSSHStates");
+      const res = await call<undefined, { states: SSHEntry[]; remarks?: Record<string, string> }>("admin:getSSHStates");
       const map: Record<string, SSHEntry> = {};
       (res?.states ?? []).forEach((e) => (map[e.uuid] = e));
       setEntries(map);
+      setRemarks(res?.remarks ?? {});
     } catch (e) {
       toast.error(e instanceof Error ? e.message : String(e));
     } finally {
@@ -380,6 +395,7 @@ const SSHManageContent = () => {
         <Text size="2" color="gray">
           {t("sshManage.description")}
         </Text>
+        <Text size="2" color="gray">{t("sshManage.dailyRefresh")}</Text>
       </Flex>
 
       <Flex gap="2" wrap="wrap" align="center" justify="between">
@@ -466,11 +482,23 @@ const SSHManageContent = () => {
                 })
               }
               onRemove={(g) => setRequest({ mode: "remove", targets: g.uuids, remove: [g.fingerprint] })}
+              onEditRemark={setEditingKey}
             />
           </Tabs.Content>
         </Box>
       </Tabs.Root>
 
+      {editingKey && (
+        <RemarkDialog
+          key={editingKey.fingerprint}
+          group={editingKey}
+          onClose={() => setEditingKey(null)}
+          onSaved={(fingerprint, remark) => {
+            setRemarks((prev) => ({ ...prev, [fingerprint]: remark }));
+            setEditingKey(null);
+          }}
+        />
+      )}
       {request && (
         <ApplyDialog
           request={request}
@@ -564,7 +592,7 @@ const KeyChips = ({ keys }: { keys: SSHKey[] }) => {
       {keys.slice(0, 2).map((k) => (
         <Badge key={k.fingerprint} variant="soft" color="gray" className="max-w-40">
           <KeyRound size={12} className="shrink-0" />
-          <span className="truncate">{k.comment || shortType(k.type)}</span>
+          <span className="truncate" title={keyComment(k) || shortType(k.type)}>{keyComment(k) || shortType(k.type)}</span>
         </Badge>
       ))}
       {keys.length > 2 && (
@@ -825,18 +853,74 @@ const UnmanageableView = ({
   );
 };
 
+const RemarkDialog = ({ group, onClose, onSaved }: {
+  group: KeyGroup;
+  onClose: () => void;
+  onSaved: (fingerprint: string, remark: string) => void;
+}) => {
+  const { t } = useTranslation();
+  const { call } = useRPC2Call();
+  const [remark, setRemark] = React.useState(group.remark ?? "");
+  const [saving, setSaving] = React.useState(false);
+  const save = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (saving) return;
+    setSaving(true);
+    try {
+      const result = await call<{ fingerprint: string; remark: string }, { fingerprint: string; remark: string }>(
+        "admin:setSSHKeyRemark", { fingerprint: group.fingerprint, remark }
+      );
+      if (!result) throw new Error(t("sshManage.remarkSaveFailed"));
+      onSaved(result.fingerprint, result.remark);
+      toast.success(t("sshManage.remarkSaved"));
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : String(error));
+    } finally {
+      setSaving(false);
+    }
+  };
+  return (
+    <Dialog.Root open onOpenChange={(open) => { if (!open && !saving) onClose(); }}>
+      <Dialog.Content maxWidth="480px">
+        <Dialog.Title>{t("sshManage.editRemark")}</Dialog.Title>
+        <Dialog.Description size="2" mb="4">{t("sshManage.remarkHint")}</Dialog.Description>
+        <form onSubmit={save}>
+          <Flex direction="column" gap="3">
+            <Code size="1" className="break-all">{group.fingerprint}</Code>
+            <TextField.Root
+              aria-label={t("sshManage.remark")}
+              placeholder={group.comments[0] || t("sshManage.noComment")}
+              value={remark}
+              onChange={(event) => setRemark(event.target.value)}
+              maxLength={200}
+              disabled={saving}
+              autoFocus
+            />
+            <Flex justify="end" gap="2" mt="2">
+              <Button type="button" variant="soft" color="gray" disabled={saving} onClick={onClose}>{t("common.cancel")}</Button>
+              <Button type="submit" loading={saving}>{t("common.save")}</Button>
+            </Flex>
+          </Flex>
+        </form>
+      </Dialog.Content>
+    </Dialog.Root>
+  );
+};
+
 const KeyView = ({
   groups,
   nodes,
   nodeName,
   onDeploy,
   onRemove,
+  onEditRemark,
 }: {
   groups: KeyGroup[];
   nodes: NodeDetail[];
   nodeName: (uuid: string) => string;
   onDeploy: (g: KeyGroup) => void;
   onRemove: (g: KeyGroup) => void;
+  onEditRemark: (g: KeyGroup) => void;
 }) => {
   const { t } = useTranslation();
   return (
@@ -902,6 +986,10 @@ const KeyView = ({
                   </TableCell>
                   <TableCell>
                     <Flex gap="2" justify="end">
+                      <Button size="1" variant="soft" onClick={() => onEditRemark(g)}>
+                        <Pencil size={14} />
+                        {t("sshManage.editRemark")}
+                      </Button>
                       <Button size="1" variant="soft" disabled={missing === 0} onClick={() => onDeploy(g)}>
                         <Plus size={14} />
                         {t("sshManage.deployToOthers")}
