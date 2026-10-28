@@ -1596,12 +1596,6 @@
     }
   },
   "sshManage": {
-    "dailyRefresh": "每天凌晨 03:00（UTC+8）自动读取在线节点的 SSH 配置。",
-    "editRemark": "编辑备注",
-    "remark": "公钥备注",
-    "remarkHint": "备注会应用于使用此公钥的所有节点，并在自动读取后保留。留空恢复公钥原有注释；无注释时显示密钥类型。",
-    "remarkSaved": "备注已保存",
-    "remarkSaveFailed": "备注保存失败",
     "addKeys": "下发公钥",
     "allow": "允许",
     "allowed": "允许",
@@ -1618,6 +1612,7 @@
       "service_restart": "重启 SSH 服务",
       "sshd_config": "sshd_config 已落盘"
     },
+    "dailyRefresh": "每天凌晨 03:00（UTC+8）自动读取在线节点的 SSH 配置。",
     "deployToOthers": "下发到其他节点",
     "description": "查看并批量修改各节点 root 的 SSH 公钥、SSH 端口以及是否允许 root 密码登录。每次修改后 agent 会自动重启 SSH 服务，并检查改动是否已落盘并生效。",
     "dialog": {
@@ -1653,6 +1648,7 @@
         "title": "root 密码登录"
       }
     },
+    "editRemark": "编辑备注",
     "fingerprint": "指纹",
     "forbid": "禁止",
     "forbidden": "禁止",
@@ -1676,6 +1672,10 @@
     "refreshAll": "读取全部",
     "refreshResult": "已读取 {{ok}} 个节点，{{failed}} 个失败",
     "refreshSelected": "读取所选",
+    "remark": "公钥备注",
+    "remarkHint": "备注会应用于使用此公钥的所有节点，并在自动读取后保留。留空恢复公钥原有注释；无注释时显示密钥类型。",
+    "remarkSaved": "备注已保存",
+    "remarkSaveFailed": "备注保存失败",
     "removeKeys": "删除公钥",
     "results": {
       "restarted": "已重启 sshd",
