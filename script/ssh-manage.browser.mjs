@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { mkdir } from "node:fs/promises";
 
 // Run against Vite. API and RPC traffic is mocked; no server SSH settings change.
 const { chromium } = await import(process.env.PLAYWRIGHT_MODULE || "playwright");
@@ -7,8 +8,10 @@ const browser = await chromium.launch({
   ...(process.env.BROWSER_PATH ? { executablePath: process.env.BROWSER_PATH } : {}),
 });
 const base = process.env.TEST_BASE_URL || "http://127.0.0.1:5173";
-const mainKey = { type: "ssh-ed25519", key: "AAAA", comment: "original-main", fingerprint: "SHA256:main" };
-const backupKey = { type: "ssh-ed25519", key: "BBBB", comment: "backup", fingerprint: "SHA256:backup" };
+const screenshots = new URL("../.codex/ssh-manage/", import.meta.url).pathname;
+await mkdir(screenshots, { recursive: true });
+const mainKey = { type: "ssh-ed25519", key: "AAAA", comment: "original-main", fingerprint: `SHA256:${"a".repeat(43)}` };
+const backupKey = { type: "ssh-ed25519", key: "BBBB", comment: "backup", fingerprint: `SHA256:${"b".repeat(43)}` };
 const clients = ["Empty", "Main", "Backup", "Unsupported"].map((name, i) => ({
   uuid: `node-${i}`, name, os: "Ubuntu", weight: i,
   cpu_cores: 2, mem_total: 4096, disk_total: 10240, swap_total: 0, tags: "",
@@ -31,7 +34,7 @@ let twoFaEnabled = true;
 
 function rpc(request) {
   let result = {};
-  if (request.method === "admin:getSSHStates") result = { states, remarks: { "SHA256:main": "Main key" } };
+  if (request.method === "admin:getSSHStates") result = { states, remarks: { [mainKey.fingerprint]: "Main key" } };
   else if (request.method === "admin:applySSHChanges") {
     writes.push(request.params);
     result = { results: request.params.uuids.map((uuid) => ({ uuid, status: "ok" })) };
@@ -74,6 +77,35 @@ try {
   await page.goto(`${base}/admin/ssh`);
   await row("Empty").getByRole("button", { name: "下发公钥" }).click();
   await otp().waitFor();
+  await dialog.evaluate(async (el) => {
+    const overlay = el.closest(".rt-BaseDialogOverlay") ?? el;
+    await Promise.all(overlay.getAnimations({ subtree: true }).filter((a) => a.effect?.getTiming().iterations !== Infinity)
+      .map((a) => a.finished.catch(() => {})));
+  });
+  await dialog.screenshot({ path: `${screenshots}/dialog-desktop.png` });
+  const desktopInput = await otp().boundingBox();
+  const desktopApply = await apply().boundingBox();
+  assert.ok(Math.abs(desktopInput.y + desktopInput.height - desktopApply.y - desktopApply.height) <= 2,
+    "desktop OTP input and action buttons must align along their bottom edge");
+  for (const width of [390, 320]) {
+    await page.setViewportSize({ width, height: 844 });
+    await apply().scrollIntoViewIfNeeded();
+    const mobileInput = await otp().boundingBox();
+    const mobileApply = await apply().boundingBox();
+    const cancel = await dialog.getByRole("button", { name: "取消", exact: true }).boundingBox();
+    assert.ok(mobileInput.y + mobileInput.height <= mobileApply.y,
+      "narrow screens must place actions below the OTP field");
+    assert.ok(Math.abs(cancel.y + cancel.height - mobileApply.y - mobileApply.height) <= 2,
+      "cancel and apply buttons must share a baseline");
+    assert.equal(await dialog.evaluate((el) => el.scrollWidth > el.clientWidth), false,
+      "full-length fingerprints must not cause horizontal overflow");
+    const mobileDialog = await dialog.boundingBox();
+    assert.ok(mobileDialog.x >= 0 && mobileDialog.x + mobileDialog.width <= width,
+      `dialog must stay inside the ${width}px viewport: ${JSON.stringify(mobileDialog)}`);
+    assert.ok(mobileApply.x >= 0 && mobileApply.x + mobileApply.width <= width);
+    await page.screenshot({ path: `${screenshots}/dialog-${width}px.png` });
+  }
+  await page.setViewportSize({ width: 1440, height: 1000 });
   assert.equal(await row("Unsupported").getByRole("button", { name: "下发公钥" }).count(), 0);
   await known("Main key").click();
   assert.equal(await dialog.getByRole("checkbox", { name: "选择 node-0", exact: true }).isChecked(), true);

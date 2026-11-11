@@ -1150,7 +1150,7 @@ const ApplyDialog = ({
 
   return (
     <Dialog.Root open onOpenChange={(open) => !open && !submitting && onClose()}>
-      <Dialog.Content maxWidth="640px">
+      <Dialog.Content width="calc(100vw - 2 * var(--space-4))" maxWidth="640px" minWidth="0" className="km-ssh-apply-dialog">
         <Dialog.Title>{t(`sshManage.dialog.${mode}.title`)}</Dialog.Title>
         <Dialog.Description size="2" mb="3">
           {t(`sshManage.dialog.${mode}.description`)}
@@ -1330,14 +1330,18 @@ const ApplyDialog = ({
               </Text>
             </Flex>
 
-            <Flex justify="end" gap="2" mt="4" align="center">
+            <Flex
+              direction={{ initial: "column", xs: "row" }}
+              align={{ initial: "stretch", xs: "end" }}
+              gap="3"
+              mt="4"
+            >
               {twoFaEnabled && (
-                <Flex direction="column" gap="1">
+                <Flex direction="column" gap="1" width={{ initial: "100%", xs: "144px" }} flexShrink="0">
                   <label htmlFor={`${fieldId}-2fa`} className="text-sm">{t("login.two_factor")}</label>
                   <TextField.Root
                     id={`${fieldId}-2fa`}
                     name="2fa_code"
-                    className="w-32"
                     type="text"
                     inputMode="numeric"
                     autoComplete="one-time-code"
@@ -1349,19 +1353,21 @@ const ApplyDialog = ({
                   />
                 </Flex>
               )}
-              <Button type="button" variant="soft" color="gray" disabled={submitting} onClick={onClose}>
-                {t("common.cancel")}
-              </Button>
-              <Button
-                type="submit"
-                color={mode === "remove" ? "red" : undefined}
-                disabled={!valid || submitting}
-              >
-                {submitting && <RefreshCw size={14} className="animate-spin" />}
-                {submitting
-                  ? t("sshManage.applying")
-                  : t("sshManage.applyTo", { count: chosen.length })}
-              </Button>
+              <Flex gap="2" justify="end" wrap="wrap" ml="auto" className="km-ssh-apply-actions">
+                <Button type="button" variant="soft" color="gray" disabled={submitting} onClick={onClose}>
+                  {t("common.cancel")}
+                </Button>
+                <Button
+                  type="submit"
+                  color={mode === "remove" ? "red" : undefined}
+                  disabled={!valid || submitting}
+                >
+                  {submitting && <RefreshCw size={14} className="animate-spin" />}
+                  {submitting
+                    ? t("sshManage.applying")
+                    : t("sshManage.applyTo", { count: chosen.length })}
+                </Button>
+              </Flex>
             </Flex>
           </fieldset>
         </form>
