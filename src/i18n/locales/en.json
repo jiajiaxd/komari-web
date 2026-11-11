@@ -843,10 +843,11 @@
       "add": {
         "title": "Add public keys",
         "description": "Append the keys to root's ~/.ssh/authorized_keys. Keys that are already installed are skipped.",
-        "keys": "Public keys (one per line)",
+        "keys": "Enter public keys (one per line; can be combined with known keys)",
+        "knownKeys": "Select known public keys",
         "hint": "{{count}} key(s)",
         "invalid": "Not an OpenSSH public key: {{line}}",
-        "first": "Enter the keys to deploy first, then choose the servers."
+        "first": "Select known keys or enter new keys first, then choose the servers."
       },
       "remove": {
         "title": "Remove public keys",

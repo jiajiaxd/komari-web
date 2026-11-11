@@ -455,6 +455,7 @@ const SSHManageContent = () => {
                   onSelect={setSelected}
                   refreshing={refreshing}
                   onRefresh={(uuid) => refresh([uuid])}
+                  onDeploy={(uuid) => setRequest({ mode: "add", targets: [uuid] })}
                   onRemoveKey={(uuid, fp) => setRequest({ mode: "remove", targets: [uuid], remove: [fp] })}
                 />
                 {unmanageable.length > 0 && (
@@ -612,6 +613,7 @@ const ServerView = ({
   onSelect,
   refreshing,
   onRefresh,
+  onDeploy,
   onRemoveKey,
 }: {
   nodes: NodeDetail[];
@@ -621,6 +623,7 @@ const ServerView = ({
   onSelect: (uuids: string[]) => void;
   refreshing: string[];
   onRefresh: (uuid: string) => void;
+  onDeploy: (uuid: string) => void;
   onRemoveKey: (uuid: string, fingerprint: string) => void;
 }) => {
   const { t } = useTranslation();
@@ -648,7 +651,7 @@ const ServerView = ({
               <TableHead>{t("sshManage.rootPasswordLogin")}</TableHead>
               <TableHead>{t("sshManage.keys")}</TableHead>
               <TableHead>{t("sshManage.updatedAt")}</TableHead>
-              <TableHead className="w-12" />
+              <TableHead className="text-right">{t("common.action")}</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -718,11 +721,17 @@ const ServerView = ({
                         {entry.state_at ? <TimeAgo value={entry.state_at} /> : "-"}
                       </TableCell>
                       <TableCell>
-                        <Tooltip content={t("common.refresh")}>
-                          <IconButton size="1" variant="ghost" disabled={busy} onClick={() => onRefresh(node.uuid)}>
-                            <RefreshCw size={14} className={busy ? "animate-spin" : ""} />
-                          </IconButton>
-                        </Tooltip>
+                        <Flex gap="3" align="center" justify="end" className="whitespace-nowrap">
+                          <Button size="1" variant="soft" onClick={() => onDeploy(node.uuid)}>
+                            <Plus size={14} />
+                            {t("sshManage.addKeys")}
+                          </Button>
+                          <Tooltip content={t("common.refresh")}>
+                            <IconButton size="1" variant="ghost" aria-label={t("common.refresh")} disabled={busy} onClick={() => onRefresh(node.uuid)}>
+                              <RefreshCw size={14} className={busy ? "animate-spin" : ""} />
+                            </IconButton>
+                          </Tooltip>
+                        </Flex>
                       </TableCell>
                     </TableRow>
                     {open && (
@@ -1048,12 +1057,13 @@ const ApplyDialog = ({
   const { mode } = request;
   const [targets, setTargets] = React.useState<string[]>(request.targets);
   const [keysText, setKeysText] = React.useState(request.keys ?? "");
+  const [knownKeys, setKnownKeys] = React.useState<string[]>([]);
   const [remove, setRemove] = React.useState<string[]>(request.remove ?? []);
   const [port, setPort] = React.useState("");
   const [rootLogin, setRootLogin] = React.useState<"allow" | "forbid">("forbid");
   const [twoFaEnabled, setTwoFaEnabled] = React.useState(false);
-  const [twoFaCode, setTwoFaCode] = React.useState("");
   const [submitting, setSubmitting] = React.useState(false);
+  const fieldId = React.useId();
 
   React.useEffect(() => {
     fetch("/api/me")
@@ -1062,7 +1072,12 @@ const ApplyDialog = ({
       .catch(() => setTwoFaEnabled(false));
   }, []);
 
-  const parsed = parseKeyLines(keysText);
+  const parsed = parseKeyLines([
+    ...groups.filter((g) => knownKeys.includes(g.fingerprint)).map(keyLine),
+    keysText,
+  ].join("\n"));
+  // A manually entered key may also be selected from the known keys.
+  const keyLines = [...new Map(parsed.lines.map((line) => [line.split(/\s+/).slice(0, 2).join(" "), line])).values()];
   const keysValid = parsed.lines.length > 0 && parsed.invalid.length === 0;
   const portNumber = Number(port);
   const portValid = Number.isInteger(portNumber) && portNumber >= 1 && portNumber <= 65535;
@@ -1072,7 +1087,7 @@ const ApplyDialog = ({
   let pending: string | null = null;
   let candidates = nodes;
   if (mode === "add") {
-    if (keysValid) candidates = nodes.filter((n) => !hasAllKeys(stateOf(n), parsed.lines));
+    if (keysValid) candidates = nodes.filter((n) => !hasAllKeys(stateOf(n), keyLines));
     else pending = t("sshManage.dialog.add.first");
   }
   if (mode === "remove") {
@@ -1089,18 +1104,22 @@ const ApplyDialog = ({
   const hidden = nodes.length - candidates.length;
   const chosen = pending ? [] : targets.filter((u) => candidates.some((n) => n.uuid === u));
 
-  let valid = chosen.length > 0 && (!twoFaEnabled || twoFaCode.trim() !== "");
+  let valid = chosen.length > 0;
   if (mode === "add") valid &&= keysValid;
   if (mode === "remove") valid &&= remove.length > 0;
   if (mode === "port") valid &&= portValid;
 
-  const submit = async () => {
+  const submit = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!valid || submitting) return;
+    // Read the DOM value so password managers need not update React state.
+    const twoFaCode = String(new FormData(event.currentTarget).get("2fa_code") ?? "").trim();
     const params: ApplyParams = { uuids: chosen };
-    if (mode === "add") params.add_keys = parsed.lines;
+    if (mode === "add") params.add_keys = keyLines;
     if (mode === "remove") params.remove_keys = remove;
     if (mode === "port") params.port = portNumber;
     if (mode === "root") params.root_password_login = rootLogin === "allow";
-    if (twoFaEnabled) params["2fa_code"] = twoFaCode.trim();
+    if (twoFaEnabled) params["2fa_code"] = twoFaCode;
     setSubmitting(true);
     try {
       const res = await call<ApplyParams, { results: Outcome[] }>("admin:applySSHChanges", params, {
@@ -1137,175 +1156,215 @@ const ApplyDialog = ({
           {t(`sshManage.dialog.${mode}.description`)}
         </Dialog.Description>
 
-        <Flex direction="column" gap="3">
-          {mode === "add" && (
-            <Flex direction="column" gap="1">
-              <label className="text-sm font-bold">{t("sshManage.dialog.add.keys")}</label>
-              <TextArea
-                rows={4}
-                spellCheck={false}
-                className="font-mono"
-                value={keysText}
-                onChange={(e) => setKeysText(e.target.value)}
-                placeholder="ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAA... user@host"
-              />
-              {parsed.invalid.length > 0 ? (
-                <Text size="1" color="red" className="break-all">
-                  {t("sshManage.dialog.add.invalid", { line: parsed.invalid[0].slice(0, 60) })}
-                </Text>
-              ) : (
-                <Text size="1" color="gray">
-                  {t("sshManage.dialog.add.hint", { count: parsed.lines.length })}
-                </Text>
-              )}
-            </Flex>
-          )}
-
-          {mode === "remove" && (
-            <Flex direction="column" gap="1">
-              <label className="text-sm font-bold">{t("sshManage.dialog.remove.keys")}</label>
-              {groups.length === 0 ? (
-                <Text size="2" color="gray">
-                  {t("sshManage.dialog.remove.none")}
-                </Text>
-              ) : (
-                <Flex direction="column" gap="2" className="max-h-48 overflow-y-auto">
-                  {groups.map((g) => (
-                    <Text as="label" size="2" key={g.fingerprint}>
-                      <Flex gap="2" align="center">
-                        <Checkbox
-                          checked={remove.includes(g.fingerprint)}
-                          onCheckedChange={(v) =>
-                            setRemove(
-                              v === true
-                                ? [...remove, g.fingerprint]
-                                : remove.filter((f) => f !== g.fingerprint)
-                            )
-                          }
-                        />
-                        <Badge variant="soft">{shortType(g.type)}</Badge>
-                        <KeyName k={g} />
-                        <Code size="1" variant="ghost" color="gray" className="truncate">
-                          {g.fingerprint}
-                        </Code>
-                        <Text size="1" color="gray" className="ml-auto whitespace-nowrap">
-                          {t("sshManage.serverCount", { count: g.uuids.length, total: nodes.length })}
-                        </Text>
+        <form onSubmit={submit}>
+          <fieldset disabled={submitting} className="m-0 min-w-0 border-0 p-0">
+            <Flex direction="column" gap="3">
+              {mode === "add" && (
+                <Flex direction="column" gap="3">
+                  <Flex direction="column" gap="1">
+                    <Text size="2" weight="bold">{t("sshManage.dialog.add.knownKeys")}</Text>
+                    {groups.length === 0 ? (
+                      <Text size="2" color="gray">{t("sshManage.noKeysAnywhere")}</Text>
+                    ) : (
+                      <Flex direction="column" gap="2" className="max-h-40 overflow-y-auto">
+                        {groups.map((g) => (
+                          <Text as="label" size="2" key={g.fingerprint}>
+                            <Flex gap="2" align="center">
+                              <Checkbox
+                                checked={knownKeys.includes(g.fingerprint)}
+                                onCheckedChange={(checked) => setKnownKeys((prev) =>
+                                  checked === true ? [...prev, g.fingerprint] : prev.filter((fp) => fp !== g.fingerprint)
+                                )}
+                              />
+                              <Badge variant="soft">{shortType(g.type)}</Badge>
+                              <KeyName k={g} />
+                              <Code size="1" variant="ghost" color="gray" className="truncate">{g.fingerprint}</Code>
+                            </Flex>
+                          </Text>
+                        ))}
                       </Flex>
-                    </Text>
-                  ))}
+                    )}
+                  </Flex>
+                  <Flex direction="column" gap="1">
+                    <label htmlFor={`${fieldId}-keys`} className="text-sm font-bold">{t("sshManage.dialog.add.keys")}</label>
+                    <TextArea
+                      id={`${fieldId}-keys`}
+                      rows={4}
+                      spellCheck={false}
+                      className="font-mono"
+                      value={keysText}
+                      onChange={(e) => setKeysText(e.target.value)}
+                      placeholder="ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAA... user@host"
+                    />
+                    {parsed.invalid.length > 0 ? (
+                      <Text size="1" color="red" className="break-all">
+                        {t("sshManage.dialog.add.invalid", { line: parsed.invalid[0].slice(0, 60) })}
+                      </Text>
+                    ) : (
+                      <Text size="1" color="gray">
+                        {t("sshManage.dialog.add.hint", { count: keyLines.length })}
+                      </Text>
+                    )}
+                  </Flex>
                 </Flex>
               )}
-              <Text size="1" color="orange">
-                {t("sshManage.dialog.remove.warning")}
-              </Text>
-            </Flex>
-          )}
 
-          {mode === "port" && (
-            <Flex direction="column" gap="1">
-              <label className="text-sm font-bold">{t("sshManage.port")}</label>
-              <TextField.Root
-                type="number"
-                min={1}
-                max={65535}
-                value={port}
-                onChange={(e) => setPort(e.target.value)}
-                placeholder="22"
-              />
-              <Text size="1" color="orange">
-                {t("sshManage.dialog.port.warning")}
-              </Text>
-            </Flex>
-          )}
-
-          {mode === "root" && (
-            <Flex direction="column" gap="2">
-              <SegmentedControl.Root
-                value={rootLogin}
-                onValueChange={(v) => setRootLogin(v as "allow" | "forbid")}
-              >
-                <SegmentedControl.Item value="forbid">{t("sshManage.forbid")}</SegmentedControl.Item>
-                <SegmentedControl.Item value="allow">{t("sshManage.allow")}</SegmentedControl.Item>
-              </SegmentedControl.Root>
-              <Text size="1" color="gray">
-                {rootLogin === "allow"
-                  ? t("sshManage.dialog.root.allowHint")
-                  : t("sshManage.dialog.root.forbidHint")}
-              </Text>
-            </Flex>
-          )}
-
-          <Flex direction="column" gap="1">
-            <Flex justify="between" align="center">
-              <label className="text-sm font-bold">{t("sshManage.targets")}</label>
-              {!pending && (
-                <Text size="1" color="gray">
-                  {t("common.selected_total", { count: chosen.length, total: candidates.length })}
-                </Text>
+              {mode === "remove" && (
+                <Flex direction="column" gap="1">
+                  <label className="text-sm font-bold">{t("sshManage.dialog.remove.keys")}</label>
+                  {groups.length === 0 ? (
+                    <Text size="2" color="gray">
+                      {t("sshManage.dialog.remove.none")}
+                    </Text>
+                  ) : (
+                    <Flex direction="column" gap="2" className="max-h-48 overflow-y-auto">
+                      {groups.map((g) => (
+                        <Text as="label" size="2" key={g.fingerprint}>
+                          <Flex gap="2" align="center">
+                            <Checkbox
+                              checked={remove.includes(g.fingerprint)}
+                              onCheckedChange={(v) =>
+                                setRemove(
+                                  v === true
+                                    ? [...remove, g.fingerprint]
+                                    : remove.filter((f) => f !== g.fingerprint)
+                                )
+                              }
+                            />
+                            <Badge variant="soft">{shortType(g.type)}</Badge>
+                            <KeyName k={g} />
+                            <Code size="1" variant="ghost" color="gray" className="truncate">
+                              {g.fingerprint}
+                            </Code>
+                            <Text size="1" color="gray" className="ml-auto whitespace-nowrap">
+                              {t("sshManage.serverCount", { count: g.uuids.length, total: nodes.length })}
+                            </Text>
+                          </Flex>
+                        </Text>
+                      ))}
+                    </Flex>
+                  )}
+                  <Text size="1" color="orange">
+                    {t("sshManage.dialog.remove.warning")}
+                  </Text>
+                </Flex>
               )}
-            </Flex>
-            {pending ? (
-              <Text as="p" size="2" color="gray" className="rounded-md border border-dashed py-6 text-center">
-                {pending}
-              </Text>
-            ) : candidates.length === 0 ? (
-              <Text as="p" size="2" color="gray" className="rounded-md border border-dashed py-6 text-center">
-                {nodes.length === 0 ? t("sshManage.noManageable") : t("sshManage.dialog.nothingToChange")}
-              </Text>
-            ) : (
-              <div className="max-h-64 overflow-y-auto">
-                <Selector
-                  hiddenDescription
-                  value={chosen}
-                  onChange={setTargets}
-                  items={candidates}
-                  getId={(n) => n.uuid}
-                  getLabel={targetLabel}
-                  filterItem={(n, kw) => (n.name || n.uuid).toLowerCase().includes(kw.toLowerCase())}
-                  searchPlaceholder={t("common.search")}
-                  headerLabel={t("common.server")}
-                />
-              </div>
-            )}
-            {!pending && hidden > 0 && (
+
+              {mode === "port" && (
+                <Flex direction="column" gap="1">
+                  <label className="text-sm font-bold">{t("sshManage.port")}</label>
+                  <TextField.Root
+                    type="number"
+                    min={1}
+                    max={65535}
+                    value={port}
+                    onChange={(e) => setPort(e.target.value)}
+                    placeholder="22"
+                  />
+                  <Text size="1" color="orange">
+                    {t("sshManage.dialog.port.warning")}
+                  </Text>
+                </Flex>
+              )}
+
+              {mode === "root" && (
+                <Flex direction="column" gap="2">
+                  <SegmentedControl.Root
+                    value={rootLogin}
+                    onValueChange={(v) => setRootLogin(v as "allow" | "forbid")}
+                  >
+                    <SegmentedControl.Item value="forbid">{t("sshManage.forbid")}</SegmentedControl.Item>
+                    <SegmentedControl.Item value="allow">{t("sshManage.allow")}</SegmentedControl.Item>
+                  </SegmentedControl.Root>
+                  <Text size="1" color="gray">
+                    {rootLogin === "allow"
+                      ? t("sshManage.dialog.root.allowHint")
+                      : t("sshManage.dialog.root.forbidHint")}
+                  </Text>
+                </Flex>
+              )}
+
+              <Flex direction="column" gap="1">
+                <Flex justify="between" align="center">
+                  <label className="text-sm font-bold">{t("sshManage.targets")}</label>
+                  {!pending && (
+                    <Text size="1" color="gray">
+                      {t("common.selected_total", { count: chosen.length, total: candidates.length })}
+                    </Text>
+                  )}
+                </Flex>
+                {pending ? (
+                  <Text as="p" size="2" color="gray" className="rounded-md border border-dashed py-6 text-center">
+                    {pending}
+                  </Text>
+                ) : candidates.length === 0 ? (
+                  <Text as="p" size="2" color="gray" className="rounded-md border border-dashed py-6 text-center">
+                    {nodes.length === 0 ? t("sshManage.noManageable") : t("sshManage.dialog.nothingToChange")}
+                  </Text>
+                ) : (
+                  <div className="max-h-64 overflow-y-auto">
+                    <Selector
+                      hiddenDescription
+                      value={chosen}
+                      onChange={setTargets}
+                      items={candidates}
+                      getId={(n) => n.uuid}
+                      getLabel={targetLabel}
+                      filterItem={(n, kw) => (n.name || n.uuid).toLowerCase().includes(kw.toLowerCase())}
+                      searchPlaceholder={t("common.search")}
+                      headerLabel={t("common.server")}
+                    />
+                  </div>
+                )}
+                {!pending && hidden > 0 && (
+                  <Text size="1" color="gray">
+                    {t(mode === "remove" ? "sshManage.dialog.hiddenWithoutKey" : "sshManage.dialog.hiddenUnchanged", {
+                      count: hidden,
+                    })}
+                  </Text>
+                )}
+              </Flex>
+
               <Text size="1" color="gray">
-                {t(mode === "remove" ? "sshManage.dialog.hiddenWithoutKey" : "sshManage.dialog.hiddenUnchanged", {
-                  count: hidden,
-                })}
+                {t("sshManage.dialog.restartNote")}
               </Text>
-            )}
-          </Flex>
+            </Flex>
 
-          <Text size="1" color="gray">
-            {t("sshManage.dialog.restartNote")}
-          </Text>
-        </Flex>
-
-        <Flex justify="end" gap="2" mt="4" align="center">
-          {twoFaEnabled && (
-            <TextField.Root
-              className="w-32"
-              type="number"
-              placeholder="2FA"
-              value={twoFaCode}
-              onChange={(e) => setTwoFaCode(e.target.value)}
-            />
-          )}
-          <Button variant="soft" color="gray" disabled={submitting} onClick={onClose}>
-            {t("common.cancel")}
-          </Button>
-          <Button
-            color={mode === "remove" ? "red" : undefined}
-            disabled={!valid || submitting}
-            onClick={submit}
-          >
-            {submitting && <RefreshCw size={14} className="animate-spin" />}
-            {submitting
-              ? t("sshManage.applying")
-              : t("sshManage.applyTo", { count: chosen.length })}
-          </Button>
-        </Flex>
+            <Flex justify="end" gap="2" mt="4" align="center">
+              {twoFaEnabled && (
+                <Flex direction="column" gap="1">
+                  <label htmlFor={`${fieldId}-2fa`} className="text-sm">{t("login.two_factor")}</label>
+                  <TextField.Root
+                    id={`${fieldId}-2fa`}
+                    name="2fa_code"
+                    className="w-32"
+                    type="text"
+                    inputMode="numeric"
+                    autoComplete="one-time-code"
+                    pattern="[0-9]{6}"
+                    minLength={6}
+                    maxLength={6}
+                    required
+                    placeholder="000000"
+                  />
+                </Flex>
+              )}
+              <Button type="button" variant="soft" color="gray" disabled={submitting} onClick={onClose}>
+                {t("common.cancel")}
+              </Button>
+              <Button
+                type="submit"
+                color={mode === "remove" ? "red" : undefined}
+                disabled={!valid || submitting}
+              >
+                {submitting && <RefreshCw size={14} className="animate-spin" />}
+                {submitting
+                  ? t("sshManage.applying")
+                  : t("sshManage.applyTo", { count: chosen.length })}
+              </Button>
+            </Flex>
+          </fieldset>
+        </form>
       </Dialog.Content>
     </Dialog.Root>
   );

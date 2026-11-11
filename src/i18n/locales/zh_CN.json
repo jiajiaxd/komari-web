@@ -1618,10 +1618,11 @@
     "dialog": {
       "add": {
         "description": "把公钥追加到 root 的 ~/.ssh/authorized_keys，已存在的公钥会跳过。",
-        "first": "请先输入要下发的公钥，再选择服务器。",
+        "first": "请先选择已知公钥或输入新公钥，再选择服务器。",
         "hint": "共 {{count}} 个公钥",
         "invalid": "不是有效的 OpenSSH 公钥：{{line}}",
-        "keys": "公钥（每行一个）",
+        "keys": "手动输入公钥（每行一个，可与已知公钥一起下发）",
+        "knownKeys": "选择已知公钥",
         "title": "下发公钥"
       },
       "hiddenUnchanged": "已隐藏 {{count}} 个无需修改的节点",
