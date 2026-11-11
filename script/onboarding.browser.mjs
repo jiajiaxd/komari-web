@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdir } from "node:fs/promises";
+import { mkdir, readFile } from "node:fs/promises";
 
 // Run against the Vite dev server. All API traffic is mocked; no server settings are changed.
 const { chromium } = await import(process.env.PLAYWRIGHT_MODULE || "playwright");
@@ -8,6 +8,7 @@ const browser = await chromium.launch({
   ...(process.env.BROWSER_PATH ? { executablePath: process.env.BROWSER_PATH } : {}),
 });
 const base = process.env.TEST_BASE_URL || "http://127.0.0.1:5173";
+const themeManifest = JSON.parse(await readFile(new URL("../komari-theme.json", import.meta.url), "utf8"));
 const output = new URL("../.codex/onboarding/", import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, "$1");
 await mkdir(output, { recursive: true });
 const key = "_komari_onboarding_v1";
@@ -61,6 +62,7 @@ async function context(viewport = { width: 1440, height: 960 }, dark = false) {
     await route.fulfill({ json: body });
   });
   await context.route("https://api.github.com/**", (route) => route.fulfill({ json: [] }));
+  await context.route("**/themes/default/komari-theme.json", (route) => route.fulfill({ json: themeManifest }));
   await context.routeWebSocket("**/api/**", (socket) => {
     socket.onMessage((message) => {
       try { socket.send(JSON.stringify(rpc(JSON.parse(message)))); } catch { /* Terminal protocol is not needed. */ }

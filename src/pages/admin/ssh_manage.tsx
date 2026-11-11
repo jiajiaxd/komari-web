@@ -371,10 +371,10 @@ const SSHManageContent = () => {
 
   const initialized = React.useRef(false);
   React.useEffect(() => {
-    if (isLoading || initialized.current) return;
+    if (initialized.current) return;
     initialized.current = true;
     load();
-  }, [isLoading, load]);
+  }, [load]);
 
   const onApplied = (list: Outcome[]) => {
     rememberOutcomes(list);

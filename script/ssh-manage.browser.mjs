@@ -12,6 +12,8 @@ const backupKey = { type: "ssh-ed25519", key: "BBBB", comment: "backup", fingerp
 const clients = ["Empty", "Main", "Backup", "Unsupported"].map((name, i) => ({
   uuid: `node-${i}`, name, os: "Ubuntu", weight: i,
   cpu_cores: 2, mem_total: 4096, disk_total: 10240, swap_total: 0, tags: "",
+  token: `test-token-${i}`, region: "SG", billing_cycle: 30, price: 0, currency: "$",
+  expired_at: "", group: "", remark: "", public_remark: "", ipv4: "", ipv6: "",
 }));
 const states = clients.slice(0, 3).map((node, i) => ({
   uuid: node.uuid,
@@ -50,11 +52,13 @@ await context.route("**/api/**", async (route) => {
   } } };
   else if (path === "/api/admin/settings") body = { data: { eula_accepted: true } };
   else if (path === "/api/admin/client/list") body = clients;
+  else if (path === "/api/admin/login-records") body = { data: { records: [], total: 0 } };
   else if (path === "/api/rpc2") body = rpc(route.request().postDataJSON());
   await route.fulfill({ json: body });
 });
 await context.routeWebSocket("**/api/**", (socket) => socket.onMessage((message) => socket.send(JSON.stringify(rpc(JSON.parse(message))))));
 const page = await context.newPage();
+page.setDefaultTimeout(15000);
 page.on("pageerror", (error) => errors.push(error.message));
 const dialog = page.getByRole("dialog");
 const apply = () => dialog.getByRole("button", { name: /^应用到/ });
@@ -132,8 +136,40 @@ try {
   await apply().click();
   await closeResults();
   assert.deepEqual(writes[2], { uuids: ["node-0", "node-2"], port: 2222 });
+
+  // Exercise client-side navigation and fork features moved by the upstream refactor.
+  await page.locator('a[href="/admin/servers"]').click();
+  const servers = page.locator(".km-page-admin-index");
+  const serverRow = servers.locator("tbody tr").filter({ has: page.getByText("Empty", { exact: true }) });
+  await serverRow.getByRole("button", { name: "更新 Agent", exact: true }).click();
+  await dialog.getByRole("heading", { name: "更新 Agent", exact: true }).waitFor();
+  await dialog.getByRole("button", { name: "取消", exact: true }).click();
+  await serverRow.getByRole("checkbox").click();
+  await servers.getByRole("button", { name: "批量更新 Agent", exact: true }).click();
+  await dialog.getByRole("heading", { name: "更新 Agent", exact: true }).waitFor();
+  await dialog.getByRole("button", { name: "取消", exact: true }).click();
+  await serverRow.getByRole("button", { name: "一键部署指令", exact: true }).click();
+  await dialog.getByText("禁用登录监控", { exact: true }).click();
+  const command = await dialog.locator("textarea").inputValue();
+  assert.match(command, /--disable-login-monitor/);
+  assert.match(command, /jiajiaxd\/komari-agent/);
+  await page.keyboard.press("Escape");
+  await servers.getByPlaceholder("查找服务器").fill("Backup");
+  await servers.locator("tbody tr").filter({ has: page.getByText("Backup", { exact: true }) }).waitFor();
+  await page.waitForFunction(() => document.querySelectorAll(".km-page-admin-index tbody tr").length === 1);
+  await page.locator('a[href="/admin/login-history"]').click();
+  await page.locator(".km-page-admin-login-history").waitFor();
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.locator('a[href="/admin/ssh"]').click();
+  await row("Empty").getByRole("button", { name: "下发公钥" }).waitFor();
   assert.deepEqual(errors, []);
-  console.log("SSH management: per-server and batch deployment, known-key selection, deduplication, OTP autofill/validation/Enter, cancellation, by-key deployment and port changes passed.");
+  console.log("SSH management: per-server/batch deployment, known-key selection, deduplication, OTP autofill/validation/Enter, cancellation, by-key deployment and port changes passed. Refactored navigation, server filtering, Agent updates, login-monitor install options and fork install sources passed.");
+} catch (error) {
+  console.error("Page errors:", errors);
+  console.error("Page content:", (await page.locator("body").innerText()).slice(0, 4000));
+  const stack = page.locator(".km-error-boundary pre");
+  if (await stack.count()) console.error("React error:", await stack.textContent());
+  throw error;
 } finally {
   await browser.close();
 }
