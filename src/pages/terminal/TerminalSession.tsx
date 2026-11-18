@@ -28,11 +28,14 @@ interface TerminalSessionProps {
   twoFaEnabled: boolean;
   disconnectMessage: string;
   onApiChange: (api: TerminalSessionApi | null) => void;
+  onLatencyChange?: (latencyMs: number | null) => void;
 }
 
 const RECONNECT_INTERVAL = 1000;
 // 与 Server/Agent 的会话保留窗口（5 分钟）保持一致，Agent 离线恢复后会话仍可续用。
 const RECONNECT_WINDOW = 5 * 60 * 1000;
+// 被控端通常几百毫秒内就附着上，等待提示延迟出现，避免每次打开都闪一下。
+const WAITING_HINT_DELAY = 800;
 
 const encode = (value: string) => new TextEncoder().encode(value);
 
@@ -47,15 +50,20 @@ const TerminalSession = ({
   twoFaEnabled,
   disconnectMessage,
   onApiChange,
+  onLatencyChange,
 }: TerminalSessionProps) => {
   const hostRef = useRef<HTMLDivElement>(null);
   const activeRef = useRef(active);
   const disconnectMessageRef = useRef(disconnectMessage);
   const onApiChangeRef = useRef(onApiChange);
+  const onLatencyChangeRef = useRef(onLatencyChange);
+  const apiRef = useRef<TerminalSessionApi | null>(null);
   const toastId = useId();
   const { t } = useTranslation();
+  const tRef = useRef(t);
 
   activeRef.current = active;
+  tRef.current = t;
 
   useEffect(() => {
     disconnectMessageRef.current = disconnectMessage;
@@ -64,6 +72,19 @@ const TerminalSession = ({
   useEffect(() => {
     onApiChangeRef.current = onApiChange;
   }, [onApiChange]);
+
+  useEffect(() => {
+    onLatencyChangeRef.current = onLatencyChange;
+  }, [onLatencyChange]);
+
+  useEffect(() => {
+    const currentApi = apiRef.current;
+    if (!currentApi) {
+      return;
+    }
+    currentApi.terminal.options.fontSize = fontSize;
+    currentApi.fit();
+  }, [fontSize]);
 
   useEffect(() => {
     if (!hostRef.current) {
@@ -107,6 +128,14 @@ const TerminalSession = ({
     let otpBuffer = "";
     let awaitingOtp = false;
     let currentOtp: string | null = null;
+    const waitingToastId = `${toastId}-waiting`;
+    // 被控端附着前先在 toast 里提示“等待连接”，避免把提示写进终端缓冲。
+    let waitingTimer: ReturnType<typeof setTimeout> | null = null;
+    let waitingShown = false;
+    // 收到 terminate 后进入终态：不再重连，也不再响应任何后续事件。
+    let terminated = false;
+    let heartbeatSeq = 0;
+    const pendingHeartbeats = new Map<string, number>();
 
     term.loadAddon(fitAddon);
     term.loadAddon(searchAddon);
@@ -184,17 +213,25 @@ const TerminalSession = ({
       }
     };
 
-    const promptOtpLine = "\r\n\x1b[1m" + t("terminal.2fa_prompt", "Two-factor authentication required.") + "\x1b[0m\r\n" + t("terminal.2fa_code_prompt", "Enter 2FA code: ");
+    const getPromptOtpLine = () =>
+      "\r\n\x1b[1m" +
+      tRef.current("terminal.2fa_prompt", "Two-factor authentication required.") +
+      "\x1b[0m\r\n" +
+      tRef.current("terminal.2fa_code_prompt", "Enter 2FA code: ");
 
     const startOtpPrompt = (isRetry: boolean) => {
       awaitingOtp = true;
       otpBuffer = "";
       if (isRetry) {
-        term.write("\r\n\x1b[31m" + t("terminal.otp_invalid", "Invalid or expired 2FA code.") + "\x1b[0m");
+        term.write(
+          "\r\n\x1b[31m" +
+            tRef.current("terminal.otp_invalid", "Invalid or expired 2FA code.") +
+            "\x1b[0m",
+        );
       } else {
         term.clear();
       }
-      term.write(promptOtpLine);
+      term.write(getPromptOtpLine());
       term.focus();
     };
 
@@ -233,7 +270,9 @@ const TerminalSession = ({
             } else {
               otpBuffer = "";
               term.write("^C\r\n");
-              term.write(t("terminal.2fa_code_prompt", "Enter 2FA code: "));
+              term.write(
+                tRef.current("terminal.2fa_code_prompt", "Enter 2FA code: "),
+              );
             }
           }
           return false;
@@ -275,20 +314,31 @@ const TerminalSession = ({
     const handleWindowResize = () => fit();
     window.addEventListener("resize", handleWindowResize);
 
+    const clearLatency = () => {
+      pendingHeartbeats.clear();
+      onLatencyChangeRef.current?.(null);
+    };
+
+    const sendHeartbeat = () => {
+      if (!ws || ws.readyState !== WebSocket.OPEN) {
+        return;
+      }
+      const id = String(++heartbeatSeq);
+      if (pendingHeartbeats.size >= 8) {
+        const oldest = pendingHeartbeats.keys().next().value;
+        if (oldest !== undefined) {
+          pendingHeartbeats.delete(oldest);
+        }
+      }
+      pendingHeartbeats.set(id, performance.now());
+      ws.send(JSON.stringify({ type: "heartbeat", id }));
+    };
+
     const startHeartbeat = () => {
       if (heartbeatInterval !== null) {
         clearInterval(heartbeatInterval);
       }
-      heartbeatInterval = setInterval(() => {
-        if (ws && ws.readyState === WebSocket.OPEN) {
-          ws.send(
-            JSON.stringify({
-              type: "heartbeat",
-              timestamp: new Date().toISOString(),
-            }),
-          );
-        }
-      }, 10000);
+      heartbeatInterval = setInterval(sendHeartbeat, 10000);
     };
 
     const stopHeartbeat = () => {
@@ -300,6 +350,43 @@ const TerminalSession = ({
 
     const hideReconnectingToast = () => {
       toast.dismiss(toastId);
+    };
+
+    const hideWaitingToast = () => {
+      // 输出流里每帧都会调用这里，没显示过就什么都不做，避免高频 dismiss。
+      if (waitingTimer === null && !waitingShown) {
+        return;
+      }
+      if (waitingTimer !== null) {
+        clearTimeout(waitingTimer);
+        waitingTimer = null;
+      }
+      waitingShown = false;
+      toast.dismiss(waitingToastId);
+    };
+
+    // 等待被控端时显示常驻 toast：连接建立后才出现（无竞态地响应后端状态帧），
+    // 被控端就位后由 ready 或首帧输出关闭。重连时同样生效。
+    const showWaitingToast = () => {
+      if (waitingTimer !== null || waitingShown) {
+        return;
+      }
+      waitingTimer = setTimeout(() => {
+        waitingTimer = null;
+        if (disposed) {
+          return;
+        }
+        waitingShown = true;
+        toast.loading(
+          tRef.current("terminal.waiting_agent", "等待被控端连接..."),
+          {
+            duration: Infinity,
+            id: waitingToastId,
+            // 被控端久不上线时允许手动关掉，不必等它连上。
+            closeButton: true,
+          },
+        );
+      }, WAITING_HINT_DELAY);
     };
 
     const connect = (otp: string | null) => {
@@ -333,6 +420,9 @@ const TerminalSession = ({
           stableConnectionTimer = null;
         }, 10000);
         hideReconnectingToast();
+        // 后端只在被控端真正附着后才发状态帧，所以这里先显示等待提示；
+        // 被控端已在位的会话会在 attach 时立刻收到 ready。
+        showWaitingToast();
         fit();
         startHeartbeat();
       };
@@ -342,21 +432,58 @@ const TerminalSession = ({
           return;
         }
         if (typeof event.data === "string") {
+          // 文本帧 = 控制消息，二进制帧 = 终端内容（见服务端 terminal/control.go）。
           try {
             const control = JSON.parse(event.data);
-            if (
-              control &&
-              typeof control === "object" &&
-              typeof control.request_id === "string"
-            ) {
-              requestID = control.request_id;
-              return;
+            if (control && typeof control === "object" && control.type) {
+              switch (control.type) {
+                case "assigned":
+                  // 会话已建立，记住 request_id；此后任何一侧掉线都能用它重连。
+                  if (typeof control.request_id === "string") {
+                    requestID = control.request_id;
+                  }
+                  return;
+                case "ready":
+                  // 被控端就位，转发开始。
+                  hideWaitingToast();
+                  sendHeartbeat();
+                  return;
+                case "heartbeat":
+                  if (typeof control.id === "string") {
+                    const sentAt = pendingHeartbeats.get(control.id);
+                    if (sentAt !== undefined) {
+                      pendingHeartbeats.delete(control.id);
+                      onLatencyChangeRef.current?.(
+                        Math.max(1, Math.round(performance.now() - sentAt)),
+                      );
+                    }
+                  }
+                  return;
+                case "abort":
+                  // 对端意外掉线：会话仍保留，稍后重连即可恢复。
+                  clearLatency();
+                  showWaitingToast();
+                  return;
+                case "terminate":
+                  // 终态：不再重连。
+                  terminated = true;
+                  clearLatency();
+                  hideWaitingToast();
+                  hideReconnectingToast();
+                  term.write(`\n ${disconnectMessageRef.current}`);
+                  return;
+                default:
+                  // 未知控制消息：忽略，绝不写进终端。前向兼容靠这一条。
+                  return;
+              }
             }
           } catch {
-            // Plain text is terminal output from the server.
+            // 不是合法的控制消息，按终端输出处理，交给下面写入 xterm。
           }
         }
         if (event.data instanceof ArrayBuffer) {
+          // 有任何输出就说明被控端已附着。
+          hideWaitingToast();
           if (!firstBinary) {
             firstBinary = true;
             // Clear screen when first agent binary packet arrives
@@ -381,6 +508,9 @@ const TerminalSession = ({
         if (ws !== socket) return;
         ws = null;
         stopHeartbeat();
+        clearLatency();
+        // 等待提示只在“已连上但还没等到被控端”时有效，断线后交给重连流程重新给出。
+        hideWaitingToast();
         if (stableConnectionTimer !== null) {
           clearTimeout(stableConnectionTimer);
           stableConnectionTimer = null;
@@ -388,13 +518,13 @@ const TerminalSession = ({
         if (disposed) {
           return;
         }
-        if (!requestID) {
-          if (twoFaEnabled) {
-            hideReconnectingToast();
-            startOtpPrompt(true);
-          } else {
-            scheduleReconnect();
-          }
+        // terminate 已经处理过（会写断开提示并停止重连），这里不重复。
+        if (terminated) {
+          return;
+        }
+        if (!requestID && twoFaEnabled) {
+          hideReconnectingToast();
+          startOtpPrompt(true);
           return;
         }
         scheduleReconnect();
@@ -410,12 +540,13 @@ const TerminalSession = ({
       }
       if (now >= reconnectDeadline) {
         hideReconnectingToast();
+        hideWaitingToast();
         term.write(`\n ${disconnectMessageRef.current}`);
         return;
       }
       if (reconnectTimer !== null) return;
       toast.loading(
-        t("terminal.reconnecting", "连接已断开，正在尝试重新连接"),
+        tRef.current("terminal.reconnecting", "连接已断开，正在尝试重新连接"),
         {
           duration: Infinity,
           id: toastId,
@@ -466,6 +597,7 @@ const TerminalSession = ({
       fit,
       exportText,
     };
+    apiRef.current = api;
     onApiChangeRef.current(api);
     requestAnimationFrame(() => {
       fit();
@@ -476,6 +608,7 @@ const TerminalSession = ({
 
     return () => {
       disposed = true;
+      apiRef.current = null;
       onApiChangeRef.current(null);
       host.removeEventListener("contextmenu", handleContextMenu);
       resizeObserver.disconnect();
@@ -485,6 +618,7 @@ const TerminalSession = ({
         clearTimeout(firstBinaryTimeout);
       }
       stopHeartbeat();
+      clearLatency();
       if (reconnectTimer !== null) {
         clearTimeout(reconnectTimer);
       }
@@ -492,6 +626,7 @@ const TerminalSession = ({
         clearTimeout(stableConnectionTimer);
       }
       hideReconnectingToast();
+      hideWaitingToast();
       if (ws) {
         const socket = ws;
         ws = null;
@@ -499,8 +634,9 @@ const TerminalSession = ({
         socket.onmessage = null;
         socket.onclose = null;
         socket.onerror = null;
-        if (socket.readyState === WebSocket.OPEN) {
-          socket.send(JSON.stringify({ type: "close", request_id: requestID }));
+        if (socket.readyState === WebSocket.OPEN && !terminated) {
+          // 用户主动关标签 = 正常终止：明确告知，双方都不再重连。
+          socket.send(JSON.stringify({ type: "terminate" }));
         }
         if (
           socket.readyState === WebSocket.OPEN ||
@@ -511,7 +647,8 @@ const TerminalSession = ({
       }
       term.dispose();
     };
-  }, [fontSize, twoFaEnabled, toastId, t, uuid]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [twoFaEnabled, toastId, uuid]);
 
   const style = {
     "--xterm-padding": `${padding}px`,
@@ -519,7 +656,7 @@ const TerminalSession = ({
 
   return (
     <div
-      className={`km-terminal-session terminal-page terminal-xterm-host absolute inset-0 h-full w-full overflow-hidden box-border bg-[var(--xterm-container-bg,#000)] p-[var(--xterm-padding,16px)] transition-opacity duration-150 [&_.xterm-viewport]:[scrollbar-width:thin] [&_.xterm-viewport]:[scrollbar-color:var(--xterm-scrollbar-thumb,#555)_var(--xterm-scrollbar-track,#000000)] [&_.xterm-viewport::-webkit-scrollbar]:h-2.5 [&_.xterm-viewport]:[scrollbar-width:thin] [&_.xterm-viewport::-webkit-scrollbar]:w-2.5 [&_.xterm-viewport::-webkit-scrollbar-track]:bg-[var(--xterm-scrollbar-track,#000000)] [&_.xterm-viewport::-webkit-scrollbar-thumb]:rounded-[5px] [&_.xterm-viewport::-webkit-scrollbar-thumb]:bg-[var(--xterm-scrollbar-thumb,#555)] [&_.xterm-viewport::-webkit-scrollbar-thumb:hover]:bg-[var(--xterm-scrollbar-thumb-hover,#777)] ${
+      className={`km-terminal-session terminal-page terminal-xterm-host absolute inset-0 h-full w-full overflow-hidden box-border bg-[var(--xterm-container-bg,#000)] p-[var(--xterm-padding,16px)] transition-opacity duration-[var(--km-dur-fast)] ease-[var(--km-ease-standard)] [&_.xterm-viewport]:[scrollbar-width:thin] [&_.xterm-viewport]:[scrollbar-color:var(--xterm-scrollbar-thumb,#555)_var(--xterm-scrollbar-track,#000000)] [&_.xterm-viewport::-webkit-scrollbar]:h-2.5 [&_.xterm-viewport]:[scrollbar-width:thin] [&_.xterm-viewport::-webkit-scrollbar]:w-2.5 [&_.xterm-viewport::-webkit-scrollbar-track]:bg-[var(--xterm-scrollbar-track,#000000)] [&_.xterm-viewport::-webkit-scrollbar-thumb]:rounded-[5px] [&_.xterm-viewport::-webkit-scrollbar-thumb]:bg-[var(--xterm-scrollbar-thumb,#555)] [&_.xterm-viewport::-webkit-scrollbar-thumb:hover]:bg-[var(--xterm-scrollbar-thumb-hover,#777)] ${
         active
           ? "is-active z-[1] visible pointer-events-auto opacity-100"
           : "invisible pointer-events-none opacity-0"

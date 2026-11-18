@@ -769,7 +769,33 @@
     "wholeCountry": "整个国家"
   },
   "logs": {
-    "title": "日志"
+    "clear_filters": "清除筛选",
+    "detail_title": "日志详情",
+    "empty": "还没有日志",
+    "field_ip": "IP",
+    "field_message": "消息",
+    "field_time": "时间",
+    "field_type": "类型",
+    "field_uuid": "UUID",
+    "filter_all_types": "全部类型",
+    "filter_type": "按类型筛选",
+    "load_failed": "日志加载失败",
+    "no_entries": "暂无日志",
+    "no_matches": "没有匹配的日志",
+    "per_page": "每页",
+    "search_placeholder": "搜索消息、IP 或 UUID",
+    "showing": "显示 {{from}}–{{to}}，共 {{total}} 条",
+    "title": "日志",
+    "type": {
+      "error": "错误",
+      "info": "信息",
+      "login": "登录",
+      "logout": "登出",
+      "renewal": "续费",
+      "terminal": "终端",
+      "unknown": "未知",
+      "warn": "警告"
+    }
   },
   "market": {
     "add_source": "添加源",
@@ -1748,6 +1774,13 @@
       "use_regex": "正则表达式"
     },
     "server": "服务器",
+    "split": {
+      "down": "向下分屏",
+      "left": "向左分屏",
+      "menu": "分屏拆分",
+      "right": "向右分屏",
+      "up": "向上分屏"
+    },
     "tabs": {
       "choose_server": "选择服务器",
       "connecting": "正在连接...",
@@ -1763,7 +1796,8 @@
       "title": "终端选项卡"
     },
     "title": "终端",
-    "title_with_sessions": "终端 - {{name}}（{{count}} 个会话）"
+    "title_with_sessions": "终端 - {{name}}（{{count}} 个会话）",
+    "waiting_agent": "等待被控端连接..."
   },
   "theme": {
     "active": "当前使用",

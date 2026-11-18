@@ -9,8 +9,10 @@ import type { TerminalClient, TerminalTab } from "./terminalTypes";
 interface TabButtonProps {
   tab: TerminalTab;
   client: TerminalClient | undefined;
+  latencyMs?: number;
   index: number;
   active: boolean;
+  showGuideTarget?: boolean;
   editing: boolean;
   draft: string;
   onActivate: () => void;
@@ -24,8 +26,10 @@ interface TabButtonProps {
 const TabButton = ({
   tab,
   client,
+  latencyMs,
   index,
   active,
+  showGuideTarget = active,
   editing,
   draft,
   onActivate,
@@ -60,6 +64,14 @@ const TabButton = ({
   };
   const shortcutNum = index < 10 ? (index === 9 ? 0 : index + 1) : null;
   const serverName = client?.name || tab.title;
+  const latencyToneClass =
+    latencyMs === undefined
+      ? ""
+      : latencyMs < 100
+      ? "text-emerald-400"
+      : latencyMs < 250
+      ? "text-amber-400"
+      : "text-rose-400";
 
   const tooltipContent = (
     <span className="flex flex-col items-center justify-center gap-0.5 rounded-[5px] border border-neutral-700 bg-[#202020] px-2 py-1 text-center leading-tight">
@@ -85,10 +97,10 @@ const TabButton = ({
         新增/关闭/重排的补位动画由 TerminalTabBar 的 layout 负责。
       */}
       <div
-        data-guide={active ? "terminal-tab" : undefined}
+        data-guide={showGuideTarget ? "terminal-tab" : undefined}
         role="tab"
         aria-selected={active}
-        className={`group relative flex h-full w-full min-w-0 cursor-pointer items-center gap-2 px-3 select-none transition-colors duration-150 ${
+        className={`group relative flex h-full w-full min-w-0 cursor-pointer items-center gap-2 px-3 select-none transition-colors duration-[var(--km-dur-fast)] ease-[var(--km-ease-standard)] ${
           active
             ? "z-[3] text-white"
             : "z-[1] text-neutral-400 hover:z-[2] hover:text-neutral-200"
@@ -100,7 +112,7 @@ const TabButton = ({
         }}
         >
           <div
-            className={`pointer-events-none absolute inset-0 rounded-t-[10px] overflow-visible transition-all duration-150 ${
+            className={`pointer-events-none absolute inset-0 rounded-t-[10px] overflow-visible transition-[opacity,background-color,border-color,box-shadow] duration-[var(--km-dur-fast)] ease-[var(--km-ease-standard)] ${
               active
                 ? "opacity-100"
               : tab.color
@@ -146,9 +158,17 @@ const TabButton = ({
           </span>
         )}
 
+        {!editing && latencyMs !== undefined && (
+          <span
+            className={`relative z-[1] shrink-0 font-mono text-[10px] tabular-nums opacity-85 ${latencyToneClass}`}
+          >
+            {latencyMs}ms
+          </span>
+        )}
+
         <button
           type="button"
-          className="relative z-[1] ml-auto inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-[3px] text-current opacity-40 transition-opacity duration-150 hover:bg-white/20 hover:opacity-100"
+          className="relative z-[1] ml-auto inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-[3px] text-current opacity-40 transition-opacity duration-[var(--km-dur-fast)] ease-[var(--km-ease-standard)] hover:bg-white/20 hover:opacity-100"
           tabIndex={-1}
           onClick={(event) => {
             event.stopPropagation();
