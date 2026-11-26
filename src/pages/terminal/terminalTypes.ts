@@ -1,3 +1,5 @@
+import { createRandomId } from "@/utils/randomId";
+
 export interface TerminalClient {
   uuid: string;
   name: string;
@@ -9,8 +11,22 @@ export interface TerminalTab {
   id: string;
   uuid: string;
   title: string;
+  terminalTitle?: string;
   color: string | null;
+  requestId?: string;
 }
+
+export const formatTabTitle = (
+  tab: Pick<TerminalTab, "title" | "terminalTitle">,
+  fallbackTitle = "",
+) => {
+  const baseTitle = tab.title || fallbackTitle;
+  const terminalTitle = tab.terminalTitle?.trim();
+  if (!terminalTitle) {
+    return baseTitle;
+  }
+  return baseTitle ? `${baseTitle} - ${terminalTitle}` : terminalTitle;
+};
 
 export type CloseMode = "current" | "left" | "right" | "others";
 
@@ -55,15 +71,17 @@ export const TAB_ACTION_CLASS_NAME =
 export const TERMINAL_CALLOUT_CLASS_NAME =
   "rounded-lg border border-red-800/60 bg-red-950/80 text-red-300 backdrop-blur-md";
 
-export const createTabId = () => `terminal-tab-${crypto.randomUUID()}`;
+export const createTabId = () => `terminal-tab-${createRandomId()}`;
 
 export const createTab = (
   client: TerminalClient,
   title = client.name,
   fallbackTitle = "Server",
+  requestId?: string,
 ): TerminalTab => ({
   id: createTabId(),
   uuid: client.uuid,
   title: title || client.name || fallbackTitle,
   color: null,
+  ...(requestId ? { requestId } : {}),
 });

@@ -15,6 +15,7 @@ import { useTranslation } from "react-i18next";
 import Tips from "./ui/tips";
 
 import { formatBytes, formatUptime } from "@/utils/unitHelper";
+import { computeTrafficQuotaPercent } from "@/utils/trafficQuota";
 import { compareNodesByStatus, EMPTY_LIVE_RECORD } from "@/utils/nodeOrder";
 import { settledLayoutTransition, useOrderSettled } from "@/hooks/useOrderSettled";
 import {
@@ -41,6 +42,8 @@ interface NodeProps {
   liveLoading?: boolean;
   /** 列表首次定序已完成：之前的重排瞬时完成（见 useOrderSettled） */
   orderSettled?: boolean;
+  /** 布局门控：仅列表排序/筛选变化时才触发 Motion 的 layout 测量，避免 2 秒实时刷新反复 getBoundingClientRect */
+  layoutDependency?: unknown;
   /** 列表中的序号：用于错峰进场（上限 140ms，避免长列表末尾等太久） */
   index?: number;
   /** React 19：memo 组件以 prop 形式接收 ref。AnimatePresence popLayout 需要它来测量退场卡片 */
@@ -48,7 +51,7 @@ interface NodeProps {
 }
 
 const Node = React.memo(
-  ({ basic, live, online, isMobile, showIpTagsInCard, liveLoading = false, orderSettled = true, index = 0, ref }: NodeProps) => {
+  ({ basic, live, online, isMobile, showIpTagsInCard, liveLoading = false, orderSettled = true, layoutDependency, index = 0, ref }: NodeProps) => {
   const [t] = useTranslation();
   /*
     进场参数只在挂载时取一次（Staging）：
@@ -110,9 +113,11 @@ const Node = React.memo(
       ref={ref}
       /*
         content 层：layout="position" 只补间位置（重排/筛选时邻居顺势补位），
-        不补间尺寸——卡片高度随数据变化时不会把文字拉伸。
+        不补间尺寸——卡片高度随数据变化时不会把文字拉伸；
+        layoutDependency 锁定在列表顺序上，2 秒数值刷新跳过 DOM 布局测量。
       */
       layout="position"
+      layoutDependency={layoutDependency}
       exit={{
         opacity: 0,
         scale: 0.97,
@@ -267,6 +272,8 @@ const Node = React.memo(
                 <img
                   src={osImage}
                   alt={basic.os}
+                  loading="lazy"
+                  decoding="async"
                   className="w-5 h-5 mr-2"
                 />
                 <Text size="2">
@@ -304,7 +311,7 @@ const Node = React.memo(
               <Flex justify="between" hidden={isMobile} direction="column" gap="1">
                 <UsageBar
                   label={t("nodeCard.totalTraffic")}
-                  value={getTrafficPercentage(
+                  value={computeTrafficQuotaPercent(
                     liveData.network.totalUp,
                     liveData.network.totalDown,
                     basic.traffic_limit,
@@ -363,7 +370,7 @@ const Node = React.memo(
               <UsageBar
                 label={`${basic.traffic_limit_type && basic.traffic_limit_type.charAt(0).toUpperCase() + basic.traffic_limit_type.slice(1)}(${formatBytes(basic.traffic_limit)})`}
                 max={Infinity}
-                value={getTrafficPercentage(
+                value={computeTrafficQuotaPercent(
                   liveData.network.totalUp,
                   liveData.network.totalDown,
                   basic.traffic_limit,
@@ -507,6 +514,7 @@ export const NodeGrid = ({ nodes, liveData, onlineSet, liveLoading = false }: No
               showIpTagsInCard={showIpTagsInCard}
               liveLoading={liveLoading}
               orderSettled={orderSettled}
+              layoutDependency={sortedNodes}
               index={index}
             />
           );
@@ -515,26 +523,3 @@ export const NodeGrid = ({ nodes, liveData, onlineSet, liveLoading = false }: No
     </div>
   );
 };
-
-function getTrafficPercentage(
-  totalUp: number,
-  totalDown: number,
-  limit: number,
-  type: "max" | "min" | "sum" | "up" | "down",
-) {
-  if (limit === 0) return 0;
-  switch (type) {
-    case "max":
-      return (Math.max(totalUp, totalDown) / limit) * 100;
-    case "min":
-      return (Math.min(totalUp, totalDown) / limit) * 100;
-    case "sum":
-      return ((totalUp + totalDown) / limit) * 100;
-    case "up":
-      return (totalUp / limit) * 100;
-    case "down":
-      return (totalDown / limit) * 100;
-    default:
-      return 0;
-  }
-}

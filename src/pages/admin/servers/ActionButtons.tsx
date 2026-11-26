@@ -7,6 +7,7 @@ import DeleteButton from "./DeleteButton";
 import GenerateCommandButton from "./GenerateCommandButton";
 import EditButton from "./EditButton";
 import BillingButton from "./BillingButton";
+import TrafficButton from "./TrafficButton";
 
 const ActionButtons = ({
   node,
@@ -40,6 +41,10 @@ const ActionButtons = ({
         </IconButton>
       </UpdateAgentDialog>
       <EditButton node={node} />
+      <TrafficButton
+        node={node}
+        defaultTimezone={settings?.traffic_default_timezone ?? ""}
+      />
       <BillingButton node={node} />
       <DeleteButton node={node} />
     </div>

@@ -13,14 +13,22 @@ import type {
 } from "react";
 import { useTranslation } from "react-i18next";
 import throttle from "lodash/throttle";
+import { useRPC2Call } from "@/contexts/RPC2Context";
+import type { RecoverableSessionGroup } from "./RecoverableSessionsDialog";
 import type { TerminalSessionApi } from "./TerminalSession";
 import {
-  DEFAULT_TERMINAL_FONT_FAMILY,
   DEFAULT_TERMINAL_PADDING,
+  DEFAULT_TERMINAL_SETTINGS,
+  fetchTerminalSettingsFromTheme,
+  getCachedTerminalSettings,
+  persistTerminalSettingsToTheme,
+  setCachedTerminalSettings,
+  type TerminalSettings,
 } from "./terminalDefaults";
 import {
   createTab,
   createTabId,
+  formatTabTitle,
   type CloseMode,
   type TerminalClient,
   type TerminalTab,
@@ -43,6 +51,12 @@ import {
   type TerminalPaneNode,
 } from "./splitTree";
 
+interface RecoverableTerminalSession {
+  request_id: string;
+  uuid: string;
+  agent_connected: boolean;
+}
+
 const getTabShortcutIndex = (event: KeyboardEvent) => {
   const code = event.code;
   const codeDigit =
@@ -62,8 +76,14 @@ const getTabShortcutIndex = (event: KeyboardEvent) => {
 
 export const useTerminalPage = () => {
   const { t } = useTranslation();
+  const { call } = useRPC2Call();
   const [clients, setClients] = useState<TerminalClient[]>([]);
   const [clientsLoading, setClientsLoading] = useState(true);
+  const [recoverableSessions, setRecoverableSessions] = useState<
+    RecoverableTerminalSession[]
+  >([]);
+  const [recoverableDialogOpen, setRecoverableDialogOpen] = useState(false);
+  const [recoverableSubmitting, setRecoverableSubmitting] = useState(false);
   const [tabs, setTabs] = useState<TerminalTab[]>([]);
   const [paneTree, setPaneTree] = useState<TerminalPaneNode>(() =>
     createLeafPane(),
@@ -94,6 +114,13 @@ export const useTerminalPage = () => {
     string[]
   >([]);
   const [tabLatencies, setTabLatencies] = useState<Record<string, number>>({});
+  const [terminalSettings, setTerminalSettings] = useState<TerminalSettings>(
+    () => getCachedTerminalSettings(),
+  );
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const hasEditedSettingsRef = useRef(false);
+  const pendingSaveSettingsRef = useRef<TerminalSettings | null>(null);
+  const saveSettingsTimerRef = useRef<number | null>(null);
 
   const containerRef = useRef<HTMLDivElement>(null);
   const draggingRef = useRef(false);
@@ -104,6 +131,7 @@ export const useTerminalPage = () => {
   const paneTreeRef = useRef<TerminalPaneNode>(paneTree);
   const activePaneIdRef = useRef<string>(activePaneId);
   const activeTabIdRef = useRef<string | null>(null);
+  const editingTabIdRef = useRef<string | null>(editingTabId);
   const sessionApisRef = useRef(new Map<string, TerminalSessionApi>());
   const [activeApi, setActiveApi] = useState<TerminalSessionApi | null>(null);
 
@@ -118,11 +146,70 @@ export const useTerminalPage = () => {
   paneTreeRef.current = paneTree;
   activePaneIdRef.current = resolvedActivePane?.id ?? activePaneId;
   activeTabIdRef.current = activeTabId;
+  editingTabIdRef.current = editingTabId;
 
   const appearance = {
     "--xterm-padding": `${DEFAULT_TERMINAL_PADDING}px`,
-    "--xterm-font-family": DEFAULT_TERMINAL_FONT_FAMILY,
+    "--xterm-font-family": terminalSettings.fontFamily,
   } as CSSProperties;
+
+  const schedulePersistTerminalSettings = useCallback(
+    (next: TerminalSettings) => {
+      hasEditedSettingsRef.current = true;
+      setCachedTerminalSettings(next);
+      pendingSaveSettingsRef.current = next;
+      if (saveSettingsTimerRef.current !== null) {
+        window.clearTimeout(saveSettingsTimerRef.current);
+      }
+      saveSettingsTimerRef.current = window.setTimeout(() => {
+        saveSettingsTimerRef.current = null;
+        const toSave = pendingSaveSettingsRef.current;
+        pendingSaveSettingsRef.current = null;
+        if (toSave) {
+          void persistTerminalSettingsToTheme(toSave).catch(() => {});
+        }
+      }, 300);
+    },
+    [],
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+    void fetchTerminalSettingsFromTheme()
+      .then((loaded) => {
+        if (cancelled || hasEditedSettingsRef.current) {
+          return;
+        }
+        setTerminalSettings(loaded);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+      if (saveSettingsTimerRef.current !== null) {
+        window.clearTimeout(saveSettingsTimerRef.current);
+        saveSettingsTimerRef.current = null;
+      }
+      const pending = pendingSaveSettingsRef.current;
+      pendingSaveSettingsRef.current = null;
+      if (pending) {
+        void persistTerminalSettingsToTheme(pending).catch(() => {});
+      }
+    };
+  }, []);
+
+  const updateTerminalSettings = useCallback(
+    (next: TerminalSettings) => {
+      setTerminalSettings(next);
+      schedulePersistTerminalSettings(next);
+    },
+    [schedulePersistTerminalSettings],
+  );
+
+  const resetTerminalSettings = useCallback(() => {
+    const next = { ...DEFAULT_TERMINAL_SETTINGS };
+    setTerminalSettings(next);
+    schedulePersistTerminalSettings(next);
+  }, [schedulePersistTerminalSettings]);
   const updateTabs = useCallback((next: TerminalTab[]) => {
     tabsRef.current = next;
     setTabs(next);
@@ -141,14 +228,26 @@ export const useTerminalPage = () => {
     });
   }, []);
 
+  const isNonTerminalInputFocused = () => {
+    const activeEl = document.activeElement;
+    return (
+      activeEl instanceof HTMLElement &&
+      activeEl.matches("input, textarea, [contenteditable='true']") &&
+      !activeEl.classList.contains("xterm-helper-textarea")
+    );
+  };
+
   const focusPane = useCallback((paneId: string) => {
     const leaf = findLeaf(paneTreeRef.current, paneId);
     if (!leaf) return;
-    activePaneIdRef.current = paneId;
-    setActivePaneId(paneId);
-    if (leaf.activeTabId) {
+    if (activePaneIdRef.current !== paneId) {
+      activePaneIdRef.current = paneId;
+      setActivePaneId(paneId);
+    }
+    if (leaf.activeTabId && !editingTabIdRef.current) {
       const api = sessionApisRef.current.get(leaf.activeTabId);
       requestAnimationFrame(() => {
+        if (editingTabIdRef.current || isNonTerminalInputFocused()) return;
         api?.terminal.focus();
       });
     }
@@ -164,7 +263,9 @@ export const useTerminalPage = () => {
     requestAnimationFrame(() => {
       const api = sessionApisRef.current.get(tabId);
       api?.fit();
-      api?.terminal.focus();
+      if (!editingTabIdRef.current && !isNonTerminalInputFocused()) {
+        api?.terminal.focus();
+      }
     });
   }, [updatePaneTree]);
 
@@ -256,6 +357,27 @@ export const useTerminalPage = () => {
   }, [t, updatePaneTree, updateTabs]);
 
   useEffect(() => {
+    let cancelled = false;
+    void call<undefined, RecoverableTerminalSession[]>(
+      "admin:listRecoverableTerminalSessions",
+    )
+      .then((data) => {
+        if (cancelled || !Array.isArray(data) || data.length === 0) {
+          return;
+        }
+        setRecoverableSessions(data);
+        setRecoverableDialogOpen(true);
+      })
+      .catch(() => {
+        // Ignore when unauthenticated or RPC is temporarily unavailable.
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [call]);
+
+  useEffect(() => {
     let mounted = true;
     fetch("/api/me")
       .then((response) => response.json())
@@ -328,6 +450,22 @@ export const useTerminalPage = () => {
     [],
   );
 
+  const handleTitleChange = useCallback(
+    (id: string, terminalTitle: string) => {
+      const normalized = terminalTitle.trim();
+      const current = tabsRef.current.find((tab) => tab.id === id);
+      if (!current || (current.terminalTitle ?? "") === normalized) {
+        return;
+      }
+      updateTabs(
+        tabsRef.current.map((tab) =>
+          tab.id === id ? { ...tab, terminalTitle: normalized } : tab,
+        ),
+      );
+    },
+    [updateTabs],
+  );
+
   useEffect(() => {
     const api = activeTabId
       ? sessionApisRef.current.get(activeTabId) ?? null
@@ -385,7 +523,7 @@ export const useTerminalPage = () => {
       document.title = t("terminal.title");
       return;
     }
-    const activeTitle = activeTab.title || t("terminal.title");
+    const activeTitle = formatTabTitle(activeTab) || t("terminal.title");
     if (tabs.length > 1) {
       document.title = t("terminal.title_with_sessions", {
         name: activeTitle,
@@ -495,7 +633,9 @@ export const useTerminalPage = () => {
       const duplicate: TerminalTab = {
         ...source,
         id: createTabId(),
+        terminalTitle: undefined,
         color: null,
+        requestId: undefined,
       };
       updateTabs([...tabsRef.current, duplicate]);
       const nextTree = insertTabAfterInLeaf(
@@ -531,7 +671,9 @@ export const useTerminalPage = () => {
       const newTab: TerminalTab = {
         ...source,
         id: createTabId(),
+        terminalTitle: undefined,
         color: null,
+        requestId: undefined,
       };
       updateTabs([...tabsRef.current, newTab]);
       const { tree: nextTree, newPaneId } = splitLeafWithTab(
@@ -601,27 +743,47 @@ export const useTerminalPage = () => {
     if (!tab) {
       return;
     }
+    editingTabIdRef.current = id;
     setActiveTabId(id);
     setEditingTabId(id);
     setRenameDraft(tab.title);
   }, [setActiveTabId]);
 
   const commitRename = useCallback(() => {
-    const id = editingTabId;
+    const id = editingTabIdRef.current;
     const value = renameDraft.trim();
+    editingTabIdRef.current = null;
     setEditingTabId(null);
-    if (!id || !value) {
+    if (!id) {
       return;
     }
-    updateTabs(
-      tabsRef.current.map((tab) =>
-        tab.id === id ? { ...tab, title: value } : tab,
-      ),
-    );
-  }, [editingTabId, renameDraft, updateTabs]);
+    if (value) {
+      updateTabs(
+        tabsRef.current.map((tab) =>
+          tab.id === id ? { ...tab, title: value } : tab,
+        ),
+      );
+    }
+    const api = sessionApisRef.current.get(id);
+    requestAnimationFrame(() => {
+      if (!editingTabIdRef.current) {
+        api?.terminal.focus();
+      }
+    });
+  }, [renameDraft, updateTabs]);
 
   const cancelRename = useCallback(() => {
+    const id = editingTabIdRef.current;
+    editingTabIdRef.current = null;
     setEditingTabId(null);
+    if (id) {
+      const api = sessionApisRef.current.get(id);
+      requestAnimationFrame(() => {
+        if (!editingTabIdRef.current) {
+          api?.terminal.focus();
+        }
+      });
+    }
   }, []);
 
   const colorTab = useCallback(
@@ -906,7 +1068,11 @@ export const useTerminalPage = () => {
   // Global Keyboard Shortcuts
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (document.querySelector(".km-file-editor, .km-guide-content")) {
+      if (
+        document.querySelector(
+          ".km-file-editor, .km-guide-content, .km-recoverable-sessions-dialog, .km-terminal-settings-dialog",
+        )
+      ) {
         return;
       }
       const ctrlShift =
@@ -1044,6 +1210,136 @@ export const useTerminalPage = () => {
     toggleFullscreen,
   ]);
 
+  const recoverableSessionGroups = useMemo<RecoverableSessionGroup[]>(() => {
+    if (recoverableSessions.length === 0) {
+      return [];
+    }
+    const clientsMap = new Map(clients.map((item) => [item.uuid, item]));
+    const groups = new Map<string, RecoverableSessionGroup>();
+    for (const session of recoverableSessions) {
+      const existing = groups.get(session.uuid);
+      if (existing) {
+        existing.count += 1;
+        continue;
+      }
+      const client = clientsMap.get(session.uuid);
+      groups.set(session.uuid, {
+        uuid: session.uuid,
+        name: client?.name || session.uuid || t("terminal.server"),
+        count: 1,
+      });
+    }
+    return Array.from(groups.values());
+  }, [clients, recoverableSessions, t]);
+
+  const showRecoverableDialog =
+    recoverableDialogOpen && !clientsLoading && recoverableSessions.length > 0;
+
+  const handleTerminateRecoverableSessions = useCallback(async () => {
+    if (recoverableSubmitting) {
+      return;
+    }
+    setRecoverableSubmitting(true);
+    try {
+      const requestIds = recoverableSessions.map((session) => session.request_id);
+      if (requestIds.length > 0) {
+        await call("admin:terminateTerminalSessions", {
+          request_ids: requestIds,
+        });
+      }
+      setRecoverableSessions([]);
+      setRecoverableDialogOpen(false);
+    } catch (error) {
+      console.error("Failed to terminate recoverable terminal sessions:", error);
+      toast.error(
+        t("terminal.recoverable.terminate_failed", "结束会话失败，请重试"),
+      );
+    } finally {
+      setRecoverableSubmitting(false);
+    }
+  }, [call, recoverableSessions, recoverableSubmitting, t]);
+
+  const handleRecoverSessions = useCallback(async () => {
+    if (recoverableSubmitting) {
+      return;
+    }
+    setRecoverableSubmitting(true);
+    try {
+      let targetSessions = recoverableSessions;
+      try {
+        const latest = await call<undefined, RecoverableTerminalSession[]>(
+          "admin:listRecoverableTerminalSessions",
+        );
+        if (Array.isArray(latest)) {
+          const expectedIds = new Set(
+            recoverableSessions.map((session) => session.request_id),
+          );
+          targetSessions = latest.filter((session) =>
+            expectedIds.has(session.request_id),
+          );
+        }
+      } catch {
+        // Fall back to cached list; server attach enforces single-browser uniqueness.
+      }
+
+      if (targetSessions.length === 0) {
+        setRecoverableSessions([]);
+        setRecoverableDialogOpen(false);
+        toast.info(
+          t(
+            "terminal.recoverable.none_left",
+            "可恢复的会话已在其他标签页处理或已过期",
+          ),
+        );
+        return;
+      }
+
+      const clientsMap = new Map(clients.map((item) => [item.uuid, item]));
+      const newTabs = targetSessions.map((session) => {
+        const client: TerminalClient = clientsMap.get(session.uuid) ?? {
+          uuid: session.uuid,
+          name: session.uuid,
+          os: "",
+        };
+        return createTab(
+          client,
+          undefined,
+          t("terminal.server"),
+          session.request_id,
+        );
+      });
+
+      updateTabs([...tabsRef.current, ...newTabs]);
+      let nextTree = paneTreeRef.current;
+      const targetPaneId =
+        activePaneIdRef.current || collectLeaves(nextTree)[0]?.id || "";
+      for (const [index, tab] of newTabs.entries()) {
+        nextTree = appendTabToLeaf(nextTree, targetPaneId, tab.id, index === 0);
+      }
+      updatePaneTree(nextTree);
+      const firstTab = newTabs[0];
+      if (firstTab) {
+        const owner = findLeafByTabId(nextTree, firstTab.id);
+        if (owner) {
+          activePaneIdRef.current = owner.id;
+          setActivePaneId(owner.id);
+        }
+      }
+      setRecoverableSessions([]);
+      setRecoverableDialogOpen(false);
+    } finally {
+      setRecoverableSubmitting(false);
+    }
+  }, [
+    call,
+    clients,
+    recoverableSessions,
+    recoverableSubmitting,
+    t,
+    updatePaneTree,
+    updateTabs,
+  ]);
+
   const sessionsReady = twoFaResolved;
 
   return {
@@ -1052,6 +1348,10 @@ export const useTerminalPage = () => {
     appearance,
     clients,
     clientsLoading,
+    showRecoverableDialog,
+    recoverableSessionsCount: recoverableSessions.length,
+    recoverableSessionGroups,
+    recoverableSubmitting,
     tabs,
     paneTree,
     leaves,
@@ -1072,6 +1372,11 @@ export const useTerminalPage = () => {
     searchUseRegex,
     resourceMonitorServers,
     tabLatencies,
+    terminalSettings,
+    settingsOpen,
+    setSettingsOpen,
+    updateTerminalSettings,
+    resetTerminalSettings,
     containerRef,
     sessionsReady,
     setActiveTabId,
@@ -1092,6 +1397,7 @@ export const useTerminalPage = () => {
     closeSearch,
     handleApiChange,
     handleLatencyChange,
+    handleTitleChange,
     startDragging,
     addTab,
     openClient,
@@ -1107,5 +1413,7 @@ export const useTerminalPage = () => {
     moveTab,
     resizeSplit,
     fitAllSessions,
+    handleRecoverSessions,
+    handleTerminateRecoverableSessions,
   };
 };

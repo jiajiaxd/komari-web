@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { PointerEvent as ReactPointerEvent } from "react";
 import { AnimatePresence, motion } from "motion/react";
-import { Code2, SquareTerminal } from "lucide-react";
+import { Code2, Plus, SquareTerminal } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import Loading from "@/components/loading";
 import { MOTION_SPRING } from "@/lib/motion";
@@ -26,15 +26,19 @@ export interface DragHoverTarget {
 export interface TerminalPaneTreeProps {
   node: TerminalPaneNode;
   activePaneId: string;
+  topRightPaneId: string;
   hasMultiplePanes: boolean;
+  hasBackground?: boolean;
+  tabBarPosition?: "top" | "right";
+  singleServerMode?: boolean;
   tabsById: Map<string, TerminalTab>;
   clients: TerminalClient[];
   clientsLoading: boolean;
   editingTabId: string | null;
   renameDraft: string;
-  serverMenuPaneId: string | null;
-  workbenchMenuPaneId: string | null;
-  resourceMonitorServers: string[];
+  serverMenuPaneId?: string | null;
+  workbenchMenuPaneId?: string | null;
+  resourceMonitorServers?: string[];
   tabLatencies: Record<string, number>;
   sessionsReady: boolean;
   draggingTabId: string | null;
@@ -54,10 +58,11 @@ export interface TerminalPaneTreeProps {
   onCloseSearch: () => void;
   onFocusPane: (paneId: string) => void;
   onActivateTab: (paneId: string, tabId: string) => void;
-  onServerMenuOpenChange: (paneId: string, open: boolean) => void;
-  onWorkbenchMenuOpenChange: (paneId: string, open: boolean) => void;
-  onOpenTerminalClient: (client: TerminalClient, paneId: string) => void;
-  onOpenWorkbenchClient: (client: TerminalClient) => void;
+  onServerMenuOpenChange?: (paneId: string, open: boolean) => void;
+  onWorkbenchMenuOpenChange?: (paneId: string, open: boolean) => void;
+  onCreateSingleServerTab?: (paneId: string) => void;
+  onOpenTerminalClient?: (client: TerminalClient, paneId: string) => void;
+  onOpenWorkbenchClient?: (client: TerminalClient) => void;
   onStartRename: (tabId: string) => void;
   onDraftChange: (value: string) => void;
   onCommitRename: () => void;
@@ -65,15 +70,17 @@ export interface TerminalPaneTreeProps {
   onDuplicate: (tabId: string) => void;
   onExportText: (tabId: string) => void;
   onFind: (tabId: string) => void;
-  onOpenFileManager: (tabId: string) => void;
-  onOpenEditor: (tabId: string) => void;
-  onToggleResourceWindow: (uuid: string) => void;
+  onOpenFileManager?: (tabId: string) => void;
+  onOpenEditor?: (tabId: string) => void;
+  onToggleResourceWindow?: (uuid: string) => void;
   onColor: (tabId: string, color: string | null) => void;
   onClose: (tabId: string, mode: CloseMode, paneId: string) => void;
   onSplitPane: (paneId: string, zone: SplitZone, tabId?: string) => void;
   onResizeSplit: (splitId: string, ratio: number) => void;
   onResizeSplitEnd: () => void;
   onViewportMount: (paneId: string, element: HTMLDivElement | null) => void;
+  onOpenSettings?: () => void;
+  onHidePanel?: () => void;
 }
 
 const DROP_OVERLAY_CLASS: Record<Exclude<DropZone, "tabbar">, string> = {
@@ -86,10 +93,12 @@ const DROP_OVERLAY_CLASS: Record<Exclude<DropZone, "tabbar">, string> = {
 
 const SplitDivider = ({
   direction,
+  hasBackground = false,
   onPointerDown,
   onDoubleClick,
 }: {
   direction: SplitDirection;
+  hasBackground?: boolean;
   onPointerDown: (event: ReactPointerEvent<HTMLDivElement>) => void;
   onDoubleClick: () => void;
 }) => {
@@ -100,7 +109,9 @@ const SplitDivider = ({
       aria-orientation={isRow ? "vertical" : "horizontal"}
       onPointerDown={onPointerDown}
       onDoubleClick={onDoubleClick}
-      className={`group relative z-10 shrink-0 select-none touch-none bg-[#141414] transition-colors hover:bg-sky-500/60 active:bg-sky-500/80 ${
+      className={`group relative z-10 shrink-0 select-none touch-none transition-colors hover:bg-sky-500/60 active:bg-sky-500/80 ${
+        hasBackground ? "bg-white/[0.10]" : "bg-[#141414]"
+      } ${
         isRow ? "h-full w-1 cursor-col-resize" : "h-1 w-full cursor-row-resize"
       }`}
     >
@@ -123,15 +134,19 @@ const LeafPaneView = ({
   const { t } = useTranslation();
   const {
     activePaneId,
+    topRightPaneId,
     hasMultiplePanes,
+    hasBackground = false,
+    tabBarPosition = "top",
+    singleServerMode = false,
     tabsById,
     clients,
     clientsLoading,
     editingTabId,
     renameDraft,
-    serverMenuPaneId,
-    workbenchMenuPaneId,
-    resourceMonitorServers,
+    serverMenuPaneId = null,
+    workbenchMenuPaneId = null,
+    resourceMonitorServers = [],
     tabLatencies,
     sessionsReady,
     draggingTabId,
@@ -153,6 +168,7 @@ const LeafPaneView = ({
     onActivateTab,
     onServerMenuOpenChange,
     onWorkbenchMenuOpenChange,
+    onCreateSingleServerTab,
     onOpenTerminalClient,
     onOpenWorkbenchClient,
     onStartRename,
@@ -169,9 +185,36 @@ const LeafPaneView = ({
     onClose,
     onSplitPane,
     onViewportMount,
+    onOpenSettings,
+    onHidePanel,
   } = props;
 
   const isFocusedPane = leaf.id === activePaneId;
+  const leafRef = useRef<HTMLDivElement>(null);
+  const onFocusPaneRef = useRef(onFocusPane);
+  onFocusPaneRef.current = onFocusPane;
+
+  useEffect(() => {
+    const el = leafRef.current;
+    if (!el) return;
+    const handleActivate = () => {
+      onFocusPaneRef.current(leaf.id);
+    };
+    el.addEventListener("pointerdown", handleActivate, true);
+    el.addEventListener("mousedown", handleActivate, true);
+    el.addEventListener("touchstart", handleActivate, {
+      capture: true,
+      passive: true,
+    });
+    el.addEventListener("focusin", handleActivate);
+    return () => {
+      el.removeEventListener("pointerdown", handleActivate, true);
+      el.removeEventListener("mousedown", handleActivate, true);
+      el.removeEventListener("touchstart", handleActivate, true);
+      el.removeEventListener("focusin", handleActivate);
+    };
+  }, [leaf.id]);
+
   const paneTabs = useMemo(
     () =>
       leaf.tabIds
@@ -213,67 +256,107 @@ const LeafPaneView = ({
       ? hoverZone
       : null;
 
+  const isRightTabBar = tabBarPosition === "right";
+  const tabBarElement = (
+    <TerminalTabBar
+      paneId={leaf.id}
+      position={tabBarPosition}
+      singleServerMode={singleServerMode}
+      isFocusedPane={isFocusedPane}
+      hasMultiplePanes={hasMultiplePanes}
+      hasBackground={hasBackground}
+      isDraggingTab={isDragging && !isNoOpSelfDrop}
+      isTabBarDropTarget={Boolean(
+        isHoveringThisPane && hoverZone === "tabbar" && !isNoOpSelfDrop,
+      )}
+      freezeSortTransform={freezeSortTransform}
+      tabs={paneTabs}
+      clients={clients}
+      clientsLoading={clientsLoading}
+      activeTabId={leaf.activeTabId}
+      editingTabId={editingTabId}
+      renameDraft={renameDraft}
+      serverMenuOpen={serverMenuPaneId === leaf.id}
+      onServerMenuOpenChange={
+        onServerMenuOpenChange
+          ? (open) => onServerMenuOpenChange(leaf.id, open)
+          : undefined
+      }
+      workbenchMenuOpen={workbenchMenuPaneId === leaf.id}
+      onWorkbenchMenuOpenChange={
+        onWorkbenchMenuOpenChange
+          ? (open) => onWorkbenchMenuOpenChange(leaf.id, open)
+          : undefined
+      }
+      onActivate={(tabId) => onActivateTab(leaf.id, tabId)}
+      onCreateSingleServerTab={
+        onCreateSingleServerTab
+          ? () => onCreateSingleServerTab(leaf.id)
+          : undefined
+      }
+      onOpenTerminalClient={
+        onOpenTerminalClient
+          ? (client) => onOpenTerminalClient(client, leaf.id)
+          : undefined
+      }
+      onOpenWorkbenchClient={onOpenWorkbenchClient}
+      onStartRename={onStartRename}
+      onDraftChange={onDraftChange}
+      onCommitRename={onCommitRename}
+      onCancelRename={onCancelRename}
+      onDuplicate={onDuplicate}
+      onExportText={onExportText}
+      onFind={onFind}
+      onOpenFileManager={onOpenFileManager}
+      onOpenEditor={onOpenEditor}
+      resourceMonitorServers={resourceMonitorServers}
+      tabLatencies={tabLatencies}
+      onToggleResourceWindow={onToggleResourceWindow}
+      onColor={onColor}
+      onClose={(tabId, mode) => onClose(tabId, mode, leaf.id)}
+      onSplit={(zone, tabId) => onSplitPane(leaf.id, zone, tabId)}
+      onFocusPane={() => onFocusPane(leaf.id)}
+      onOpenSettings={
+        leaf.id === topRightPaneId ? onOpenSettings : undefined
+      }
+      onHidePanel={leaf.id === topRightPaneId ? onHidePanel : undefined}
+    />
+  );
+
   return (
     <div
+      ref={leafRef}
       data-pane-leaf={leaf.id}
       onPointerDownCapture={() => {
         if (!isFocusedPane) {
           onFocusPane(leaf.id);
         }
       }}
-      className={`km-terminal-pane relative flex h-full min-h-0 w-full min-w-0 flex-1 flex-col overflow-hidden bg-[#000000] ${
+      className={`km-terminal-pane relative z-[1] flex h-full min-h-0 w-full min-w-0 flex-1 overflow-hidden ${
+        isRightTabBar ? "flex-row" : "flex-col"
+      } ${
+        hasBackground ? "bg-transparent" : "bg-[#000000]"
+      } ${
         hasMultiplePanes
           ? isFocusedPane
-            ? "ring-1 ring-inset ring-sky-500/35"
-            : "ring-1 ring-inset ring-neutral-800/80"
+            ? "ring-1 ring-inset ring-sky-500/45"
+            : hasBackground
+              ? "ring-1 ring-inset ring-white/[0.06]"
+              : "ring-1 ring-inset ring-neutral-800/80"
           : ""
       }`}
     >
-      <TerminalTabBar
-        paneId={leaf.id}
-        isFocusedPane={isFocusedPane}
-        hasMultiplePanes={hasMultiplePanes}
-        isDraggingTab={isDragging && !isNoOpSelfDrop}
-        isTabBarDropTarget={Boolean(
-          isHoveringThisPane && hoverZone === "tabbar" && !isNoOpSelfDrop,
-        )}
-        freezeSortTransform={freezeSortTransform}
-        tabs={paneTabs}
-        clients={clients}
-        clientsLoading={clientsLoading}
-        activeTabId={leaf.activeTabId}
-        editingTabId={editingTabId}
-        renameDraft={renameDraft}
-        serverMenuOpen={serverMenuPaneId === leaf.id}
-        onServerMenuOpenChange={(open) => onServerMenuOpenChange(leaf.id, open)}
-        workbenchMenuOpen={workbenchMenuPaneId === leaf.id}
-        onWorkbenchMenuOpenChange={(open) =>
-          onWorkbenchMenuOpenChange(leaf.id, open)
-        }
-        onActivate={(tabId) => onActivateTab(leaf.id, tabId)}
-        onOpenTerminalClient={(client) => onOpenTerminalClient(client, leaf.id)}
-        onOpenWorkbenchClient={onOpenWorkbenchClient}
-        onStartRename={onStartRename}
-        onDraftChange={onDraftChange}
-        onCommitRename={onCommitRename}
-        onCancelRename={onCancelRename}
-        onDuplicate={onDuplicate}
-        onExportText={onExportText}
-        onFind={onFind}
-        onOpenFileManager={onOpenFileManager}
-        onOpenEditor={onOpenEditor}
-        resourceMonitorServers={resourceMonitorServers}
-        tabLatencies={tabLatencies}
-        onToggleResourceWindow={onToggleResourceWindow}
-        onColor={onColor}
-        onClose={(tabId, mode) => onClose(tabId, mode, leaf.id)}
-        onSplit={(zone, tabId) => onSplitPane(leaf.id, zone, tabId)}
-        onFocusPane={() => onFocusPane(leaf.id)}
-      />
+      {!isRightTabBar && tabBarElement}
 
       <div
         data-pane-body={leaf.id}
-        className="km-terminal-pane-body relative flex min-h-0 min-w-0 flex-1 overflow-hidden bg-[#000000]"
+        className={`km-terminal-pane-body relative flex min-h-0 min-w-0 flex-1 overflow-hidden transition-colors duration-150 ${
+          hasBackground
+            ? hasMultiplePanes && !isFocusedPane
+              ? "bg-black/38"
+              : "bg-transparent"
+            : "bg-[#000000]"
+        }`}
       >
         {isFocusedPane && (
           <TerminalSearchBar
@@ -294,7 +377,9 @@ const LeafPaneView = ({
 
         <div
           ref={viewportCallbackRef}
-          className="km-terminal-session-stack relative h-full min-h-0 min-w-0 flex-1 overflow-hidden bg-[#000000]"
+          className={`km-terminal-session-stack relative h-full min-h-0 min-w-0 flex-1 overflow-hidden ${
+            hasBackground ? "bg-transparent" : "bg-[#000000]"
+          }`}
         >
           <AnimatePresence initial={false}>
             {paneTabs.length === 0 && (
@@ -318,22 +403,41 @@ const LeafPaneView = ({
                     clientsLoading ? "pointer-events-none opacity-40" : ""
                   }`}
                 >
-                  <button
-                    type="button"
-                    onClick={() => onServerMenuOpenChange(leaf.id, true)}
-                    className="flex items-center gap-1.5 rounded-[6px] border border-neutral-700 bg-neutral-800/80 px-3 py-1.5 text-xs text-neutral-200 transition-colors hover:bg-neutral-700 disabled:opacity-50"
-                  >
-                    <SquareTerminal size={14} />
-                    {t("terminal.tabs.open_terminal", "Open terminal")}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => onWorkbenchMenuOpenChange(leaf.id, true)}
-                    className="flex items-center gap-1.5 rounded-[6px] border border-neutral-700 bg-neutral-800/80 px-3 py-1.5 text-xs text-neutral-200 transition-colors hover:bg-neutral-700 disabled:opacity-50"
-                  >
-                    <Code2 size={14} />
-                    {t("terminal.tabs.open_workbench", "Open workbench")}
-                  </button>
+                  {singleServerMode && onCreateSingleServerTab ? (
+                    <button
+                      type="button"
+                      onClick={() => onCreateSingleServerTab(leaf.id)}
+                      className="flex items-center gap-1.5 rounded-[6px] border border-neutral-700 bg-neutral-800/80 px-3 py-1.5 text-xs text-neutral-200 transition-colors hover:bg-neutral-700 disabled:opacity-50"
+                    >
+                      <Plus size={14} />
+                      {t("terminal.tabs.open_terminal", "Open terminal")}
+                    </button>
+                  ) : (
+                    <>
+                      {onServerMenuOpenChange && (
+                        <button
+                          type="button"
+                          onClick={() => onServerMenuOpenChange(leaf.id, true)}
+                          className="flex items-center gap-1.5 rounded-[6px] border border-neutral-700 bg-neutral-800/80 px-3 py-1.5 text-xs text-neutral-200 transition-colors hover:bg-neutral-700 disabled:opacity-50"
+                        >
+                          <SquareTerminal size={14} />
+                          {t("terminal.tabs.open_terminal", "Open terminal")}
+                        </button>
+                      )}
+                      {onWorkbenchMenuOpenChange && (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            onWorkbenchMenuOpenChange(leaf.id, true)
+                          }
+                          className="flex items-center gap-1.5 rounded-[6px] border border-neutral-700 bg-neutral-800/80 px-3 py-1.5 text-xs text-neutral-200 transition-colors hover:bg-neutral-700 disabled:opacity-50"
+                        >
+                          <Code2 size={14} />
+                          {t("terminal.tabs.open_workbench", "Open workbench")}
+                        </button>
+                      )}
+                    </>
+                  )}
                 </div>
               </motion.div>
             )}
@@ -355,6 +459,19 @@ const LeafPaneView = ({
           </AnimatePresence>
         </div>
 
+        {hasMultiplePanes && (
+          <div
+            className={`pointer-events-none absolute inset-0 z-[4] transition-opacity duration-150 ${
+              isFocusedPane
+                ? "opacity-0"
+                : hasBackground
+                  ? "bg-black/15 opacity-100"
+                  : "bg-black/22 opacity-100"
+            }`}
+            aria-hidden="true"
+          />
+        )}
+
         {bodyPreviewZone && (
           <div
             className={`pointer-events-none absolute z-20 rounded-[4px] backdrop-blur-[1px] transition-all duration-100 ${DROP_OVERLAY_CLASS[bodyPreviewZone]}`}
@@ -362,6 +479,8 @@ const LeafPaneView = ({
           />
         )}
       </div>
+
+      {isRightTabBar && tabBarElement}
     </div>
   );
 };
@@ -437,7 +556,7 @@ const SplitNodeView = ({
   return (
     <div
       ref={containerRef}
-      className={`flex h-full min-h-0 w-full min-w-0 flex-1 overflow-hidden ${
+      className={`relative z-[1] flex h-full min-h-0 w-full min-w-0 flex-1 overflow-hidden ${
         isRow ? "flex-row" : "flex-col"
       }`}
     >
@@ -453,6 +572,7 @@ const SplitNodeView = ({
       </div>
       <SplitDivider
         direction={splitNode.direction}
+        hasBackground={props.hasBackground}
         onPointerDown={handlePointerDown}
         onDoubleClick={() => {
           props.onResizeSplit(splitNode.id, 0.5);
@@ -487,16 +607,40 @@ export const TerminalPaneTree = (props: TerminalPaneTreeProps) => {
  */
 export const PersistentSessionPortal = ({
   targetViewport,
+  onFocusPane,
   children,
 }: {
   targetViewport: HTMLDivElement | null;
+  onFocusPane?: () => void;
   children: React.ReactNode;
 }) => {
+  const onFocusPaneRef = useRef(onFocusPane);
+  onFocusPaneRef.current = onFocusPane;
+
   const [portalHost] = useState(() => {
     const el = document.createElement("div");
     el.className = "km-terminal-session-slot absolute inset-0 h-full w-full";
     return el;
   });
+
+  useEffect(() => {
+    const activate = () => {
+      onFocusPaneRef.current?.();
+    };
+    portalHost.addEventListener("pointerdown", activate, true);
+    portalHost.addEventListener("mousedown", activate, true);
+    portalHost.addEventListener("touchstart", activate, {
+      capture: true,
+      passive: true,
+    });
+    portalHost.addEventListener("focusin", activate);
+    return () => {
+      portalHost.removeEventListener("pointerdown", activate, true);
+      portalHost.removeEventListener("mousedown", activate, true);
+      portalHost.removeEventListener("touchstart", activate, true);
+      portalHost.removeEventListener("focusin", activate);
+    };
+  }, [portalHost]);
 
   useEffect(() => {
     if (!targetViewport) {
