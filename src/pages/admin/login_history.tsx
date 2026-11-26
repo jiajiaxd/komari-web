@@ -20,7 +20,7 @@ import {
   Text,
   TextField,
 } from "@radix-ui/themes";
-import { RefreshCw, Trash2 } from "lucide-react";
+import { RefreshCw, ShieldPlus, Trash2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import NumberPicker from "@/components/ui/number-picker";
@@ -60,6 +60,7 @@ interface LoginRecord {
   isp: string;
   trusted: boolean;
   trust_reason: string;
+  source_allowlisted: boolean;
   alerted: boolean;
   login_time: string;
 }
@@ -121,6 +122,7 @@ const RecordsView = () => {
   const [client, setClient] = React.useState(ALL_CLIENTS);
   const [untrustedOnly, setUntrustedOnly] = React.useState(false);
   const [reloadKey, setReloadKey] = React.useState(0);
+  const [trustingIP, setTrustingIP] = React.useState<string | null>(null);
   const limitRef = React.useRef(limit);
   // NumberPicker 会在每次 onChange 变化时回调，需保持引用稳定并只在值变化时重置页码
   const handleLimitChange = React.useCallback((v: number) => {
@@ -178,6 +180,29 @@ const RecordsView = () => {
       setReloadKey((k) => k + 1);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : String(err));
+    }
+  };
+
+  const trustSource = async (ip: string) => {
+    setTrustingIP(ip);
+    try {
+      const res = await fetch("/api/admin/login-records/trust", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ source_ip: ip }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.message || res.statusText);
+      setRecords((current) => current.map((record) => (
+        record.source_ip === ip ? { ...record, source_allowlisted: true } : record
+      )));
+      toast.success(t("loginHistory.sourceTrustSaved", { ip }));
+    } catch (err) {
+      toast.error(t("loginHistory.sourceTrustFailed", {
+        error: err instanceof Error ? err.message : String(err),
+      }));
+    } finally {
+      setTrustingIP(null);
     }
   };
 
@@ -310,7 +335,24 @@ const RecordsView = () => {
                       </Flex>
                     </TableCell>
                     <TableCell className="font-mono whitespace-nowrap">
-                      {formatSource(r)}
+                      <Flex gap="2" align="center">
+                        <span>{formatSource(r)}</span>
+                        {r.source_allowlisted ? (
+                          <Badge color="green">{t("loginHistory.sourceAllowlisted")}</Badge>
+                        ) : r.source_ip && (
+                          <Button
+                            size="1"
+                            variant="soft"
+                            className="font-sans"
+                            disabled={trustingIP !== null}
+                            loading={trustingIP === r.source_ip}
+                            onClick={() => void trustSource(r.source_ip)}
+                          >
+                            <ShieldPlus size={14} />
+                            {t("loginHistory.trustSource")}
+                          </Button>
+                        )}
+                      </Flex>
                     </TableCell>
                     <TableCell>
                       <Flex gap="2" align="center">

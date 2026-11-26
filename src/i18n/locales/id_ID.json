@@ -1946,6 +1946,9 @@
   "warn_https": "Koneksi saat ini bukan HTTPS! Data sensitif Anda berisiko. Amankan koneksi sekarang! Fitur salin mungkin tidak tersedia!",
   "warn_websocket": "Permintaan RPC2 gagal, periksa koneksi jaringan atau status server!",
   "sshManage": {
+    "copyAddress": "Salin alamat SSH",
+    "copyAddressUnavailable": "IP server atau port SSH tidak tersedia",
+    "copyAddressFailed": "Gagal menyalin alamat SSH",
     "dailyRefresh": "Pengaturan SSH node online diperbarui setiap hari pukul 03:00 (UTC+8).",
     "editRemark": "Edit catatan",
     "remark": "Catatan kunci",

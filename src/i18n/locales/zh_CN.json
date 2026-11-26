@@ -934,6 +934,10 @@
     "noRegions": "未设置",
     "positiveInteger": "请输入正整数",
     "privateNetwork": "内网地址",
+    "trustSource": "加入可信来源",
+    "sourceAllowlisted": "已加入可信来源",
+    "sourceTrustSaved": "已将 {{ip}} 加入可信来源",
+    "sourceTrustFailed": "加入可信来源失败（{{error}}）",
     "protocol": "协议",
     "reason": {
       "private": "内网",
@@ -1819,6 +1823,9 @@
     }
   },
   "sshManage": {
+    "copyAddress": "复制 SSH 地址",
+    "copyAddressUnavailable": "暂无服务器 IP 或 SSH 端口",
+    "copyAddressFailed": "复制 SSH 地址失败",
     "addKeys": "下发公钥",
     "allow": "允许",
     "allowed": "允许",

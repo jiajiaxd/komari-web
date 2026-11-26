@@ -1946,6 +1946,9 @@
   "warn_https": "當前連線不是 HTTPS！您的敏感資料存在嚴重風險。請立即採取措施確保連線安全！複製操作可能無法使用！",
   "warn_websocket": "RPC2 請求失敗，請檢查網路連線或伺服器狀態！",
   "sshManage": {
+    "copyAddress": "複製 SSH 位址",
+    "copyAddressUnavailable": "目前沒有伺服器 IP 或 SSH 連接埠",
+    "copyAddressFailed": "無法複製 SSH 位址",
     "dailyRefresh": "每天凌晨 03:00（UTC+8）自動讀取線上節點的 SSH 設定。",
     "editRemark": "編輯備註",
     "remark": "公鑰備註",

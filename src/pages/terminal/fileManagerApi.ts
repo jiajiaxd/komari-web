@@ -1,4 +1,6 @@
 import chardet from "chardet";
+
+export { copyTextToClipboard } from "@/lib/clipboard";
 export const MAX_EDITABLE_FILE_SIZE = 2 * 1024 * 1024;
 /** Default logical block size for both file uploads and downloads. */
 export const TRANSFER_CHUNK_SIZE = 25 * 1024 * 1024;
@@ -200,24 +202,6 @@ export const formatFileSize = (bytes: number) => {
     index += 1;
   }
   return `${value >= 10 ? value.toFixed(1) : value.toFixed(2)} ${units[index]}`;
-};
-
-export const copyTextToClipboard = async (text: string) => {
-  try {
-    await navigator.clipboard.writeText(text);
-    return true;
-  } catch {
-    const textarea = document.createElement("textarea");
-    textarea.value = text;
-    textarea.setAttribute("readonly", "true");
-    textarea.style.position = "fixed";
-    textarea.style.opacity = "0";
-    document.body.appendChild(textarea);
-    textarea.select();
-    const copied = document.execCommand("copy");
-    textarea.remove();
-    return copied;
-  }
 };
 
 type DroppedFileSystemEntry = {

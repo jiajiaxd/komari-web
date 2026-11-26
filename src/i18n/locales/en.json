@@ -980,6 +980,10 @@
     "empty": "No login records",
     "total": "{{count}} in total",
     "privateNetwork": "Private network",
+    "trustSource": "Add to trusted sources",
+    "sourceAllowlisted": "On IP allowlist",
+    "sourceTrustSaved": "Added {{ip}} to trusted sources",
+    "sourceTrustFailed": "Could not add the IP to trusted sources ({{error}})",
     "untrusted": "Untrusted",
     "alerted": "Alerted",
     "reason": {
@@ -1012,6 +1016,9 @@
     "positiveInteger": "Please enter a positive integer"
   },
   "sshManage": {
+    "copyAddress": "Copy SSH address",
+    "copyAddressUnavailable": "Server IP or SSH port is unavailable",
+    "copyAddressFailed": "Could not copy the SSH address",
     "dailyRefresh": "SSH settings of online nodes are refreshed daily at 03:00 (UTC+8).",
     "editRemark": "Edit remark",
     "remark": "Key remark",

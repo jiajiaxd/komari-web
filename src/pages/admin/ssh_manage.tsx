@@ -27,6 +27,7 @@ import {
   CheckCircle2,
   ChevronDown,
   ChevronRight,
+  Copy,
   KeyRound,
   Lock,
   LockOpen,
@@ -42,6 +43,7 @@ import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import Loading from "@/components/loading";
 import Selector from "@/components/Selector";
+import { copyTextToClipboard } from "@/lib/clipboard";
 import { useRPC2Call } from "@/contexts/RPC2Context";
 import {
   NodeDetailsProvider,
@@ -167,6 +169,33 @@ function isManageable(entry?: SSHEntry, outcome?: Outcome) {
   if (!entry?.state) return false;
   return !(outcome && (outcome.status === "unsupported" || outcome.status === "outdated"));
 }
+
+const CopySSHAddress = ({ node, ports }: { node: NodeDetail; ports?: number[] }) => {
+  const { t } = useTranslation();
+  const ip = node.ipv4?.trim() || node.ipv6?.trim();
+  const host = ip?.includes(":") && !ip.startsWith("[") ? `[${ip}]` : ip;
+  const addresses = host && ports?.map((port) => `root@${host}:${port}`).join("\n");
+  const label = t("sshManage.copyAddress");
+
+  const copy = async () => {
+    if (!addresses) return;
+    if (await copyTextToClipboard(addresses)) {
+      toast.success(t("copy_success"));
+    } else {
+      toast.error(t("sshManage.copyAddressFailed"));
+    }
+  };
+
+  return (
+    <Tooltip content={addresses ? label : t("sshManage.copyAddressUnavailable")}>
+      <span className="inline-flex">
+        <IconButton size="1" variant="ghost" aria-label={label} disabled={!addresses} onClick={() => void copy()}>
+          <Copy size={14} />
+        </IconButton>
+      </span>
+    </Tooltip>
+  );
+};
 
 function keyComment(k: { remark?: string; comment?: string; comments?: string[] }) {
   return k.remark?.trim() || k.comment?.trim() || k.comments?.find((c) => c.trim())?.trim() || "";
@@ -726,6 +755,7 @@ const ServerView = ({
                             <Plus size={14} />
                             {t("sshManage.addKeys")}
                           </Button>
+                          <CopySSHAddress node={node} ports={state.ports} />
                           <Tooltip content={t("common.refresh")}>
                             <IconButton size="1" variant="ghost" aria-label={t("common.refresh")} disabled={busy} onClick={() => onRefresh(node.uuid)}>
                               <RefreshCw size={14} className={busy ? "animate-spin" : ""} />
@@ -846,11 +876,14 @@ const UnmanageableView = ({
                   </TableCell>
                   <TableCell>{entry?.checked_at ? <TimeAgo value={entry.checked_at} /> : "-"}</TableCell>
                   <TableCell>
-                    <Tooltip content={t("common.refresh")}>
-                      <IconButton size="1" variant="ghost" disabled={busy} onClick={() => onRefresh(node.uuid)}>
-                        <RefreshCw size={14} className={busy ? "animate-spin" : ""} />
-                      </IconButton>
-                    </Tooltip>
+                    <Flex gap="3" align="center" justify="end">
+                      <CopySSHAddress node={node} ports={entry?.state?.ports} />
+                      <Tooltip content={t("common.refresh")}>
+                        <IconButton size="1" variant="ghost" aria-label={t("common.refresh")} disabled={busy} onClick={() => onRefresh(node.uuid)}>
+                          <RefreshCw size={14} className={busy ? "animate-spin" : ""} />
+                        </IconButton>
+                      </Tooltip>
+                    </Flex>
                   </TableCell>
                 </TableRow>
               );

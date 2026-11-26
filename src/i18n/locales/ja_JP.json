@@ -1946,6 +1946,9 @@
   "warn_https": "現在の接続は HTTPS ではありません！あなたの敏感なデータには重大なリスクがあります。接続を安全にするために直ちに対策を講じてください！コピー操作は使用できない可能性があります！",
   "warn_websocket": "RPC2 リクエストに失敗しました。ネットワーク接続またはサーバーの状態を確認してください！",
   "sshManage": {
+    "copyAddress": "SSH アドレスをコピー",
+    "copyAddressUnavailable": "サーバーの IP アドレスまたは SSH ポートが不明です",
+    "copyAddressFailed": "SSH アドレスをコピーできませんでした",
     "dailyRefresh": "オンラインノードの SSH 設定を毎日 03:00（UTC+8）に自動取得します。",
     "editRemark": "備考を編集",
     "remark": "公開鍵の備考",
